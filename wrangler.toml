@@ -1,0 +1,28 @@
+name = "savepoint-mcp"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "savepoint-db"
+database_id = "REPLACE_WITH_YOUR_D1_ID"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "savepoint-files"
+
+[vars]
+MAX_PROJECTS_PER_DAY = "200"
+RATE_LIMIT_PER_MIN = "120"
+EXPIRY_HOURS = "24"
+MAX_PROJECT_BYTES = "26214400"   # 25 MB per project
+MAX_FILES = "200"                 # files per project
+MAX_FILE_BYTES = "1048576"       # 1 MB per file
+DOWNLOAD_MINUTES = "15"          # download link lifetime
+CLEANUP_BUDGET = "40"            # max storage/DB calls per hourly cleanup run
+# Optional secret (set with: npx wrangler secret put ACCESS_KEY)
+# ACCESS_KEY = "..."
+
+# Phase 3: hourly cleanup of expired projects and zips
+[triggers]
+crons = ["0 * * * *"]

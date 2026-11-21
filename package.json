@@ -1,0 +1,37 @@
+{
+  "name": "savepoint-mcp",
+  "version": "0.3.0",
+  "private": true,
+  "description": "A Cloudflare-backed remote MCP server for saving and continuing text projects across Claude chats.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mocin84/savepoint-mcp.git"
+  },
+  "homepage": "https://github.com/mocin84/savepoint-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/mocin84/savepoint-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "cloudflare-workers",
+    "claude",
+    "project-continuity"
+  ],
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:cron": "node scripts/smoke-cron.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261119.1",
+    "typescript": "^5.5.0",
+    "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
+  }
+}

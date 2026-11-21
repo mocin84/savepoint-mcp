@@ -1,0 +1,22 @@
+# Dependencies and generated files
+node_modules/
+.wrangler/
+coverage/
+dist/
+worker.log
+worker.pid
+
+# Local credentials and configuration
+.dev.vars
+.env
+.env.*
+!.env.example
+
+# Owner-only working material; not part of the public source release
+/BASE_PROMPT.md
+/REPORT.md
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
