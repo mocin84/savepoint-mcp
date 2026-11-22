@@ -7,7 +7,7 @@ import {
 } from "@cloudflare/workers-oauth-provider";
 import { handleMcp } from "./mcp";
 import { cleanup, handleDownload } from "./downloads";
-import { publicIcon, publicPage } from "./site";
+import { icon as siteIcon, publicIcon, publicPage } from "./site";
 
 export interface Env {
   DB: D1Database;
@@ -60,30 +60,68 @@ async function pkceChallenge(verifier: string): Promise<string> {
   return base64Url(new Uint8Array(digest));
 }
 
+// Shared look for the sign-in pages. Matches the public site's palette and
+// needs no external resources, so it works under the strict page CSP.
+const AUTH_STYLE = `
+:root{color-scheme:light dark;--paper:#f4f7f5;--card:#fff;--ink:#102b3d;--muted:#5a6e7b;--line:#dde6e2;--soft:#f3f7f5;--mint:#2fa985;--warn-bg:#fff6e5;--warn-ink:#7a4d00;--btn-border:#747775;--btn-ink:#1f1f1f;--btn-bg:#fff;--btn-hover:#f6f8f7;--shadow:0 1px 2px #102b3d0d,0 12px 40px #102b3d14;font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@media (prefers-color-scheme:dark){:root{--paper:#0b1620;--card:#111f2b;--ink:#e8eff3;--muted:#9fb2be;--line:#22384a;--soft:#0d1b26;--mint:#6fd8b8;--warn-bg:#2d2411;--warn-ink:#f3cf87;--btn-border:#8e918f;--btn-ink:#e3e3e3;--btn-bg:#131314;--btn-hover:#1d1e20;--shadow:0 12px 40px #0006}}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--paper);color:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px}
+.card{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:36px 32px 28px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:650;font-size:15px;letter-spacing:.01em}.brand .logo{width:32px;height:32px;flex:none}
+h1{font-size:22px;line-height:1.3;font-weight:650;margin:28px 0 6px;letter-spacing:-.01em}.lead{color:var(--muted);margin:0 0 24px}
+.details{list-style:none;margin:0 0 24px;padding:0;border:1px solid var(--line);border-radius:12px;background:var(--soft)}
+.details li{display:flex;justify-content:space-between;gap:16px;padding:11px 14px;font-size:14px}.details li+li{border-top:1px solid var(--line)}
+.details .k{color:var(--muted);flex:none}.details .v{text-align:right;font-weight:550;overflow-wrap:anywhere}.tag{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;font-size:11.5px;font-weight:550;color:var(--muted);border:1px solid var(--line)}
+.warn{margin:-8px 0 20px;padding:10px 12px;border-radius:10px;background:var(--warn-bg);color:var(--warn-ink);font-size:13.5px}
+.actions{display:grid;gap:10px}
+.gbtn{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:44px;padding:0 16px;border-radius:999px;border:1px solid var(--btn-border);background:var(--btn-bg);color:var(--btn-ink);font:inherit;font-weight:550;font-size:15px;cursor:pointer;transition:background .15s}
+.gbtn:hover{background:var(--btn-hover)}.gbtn svg{width:18px;height:18px;flex:none}
+.cancel{height:40px;border:0;border-radius:999px;background:transparent;color:var(--muted);font:inherit;font-size:14px;cursor:pointer}.cancel:hover{color:var(--ink);background:var(--soft)}
+button:focus-visible{outline:2px solid var(--mint);outline-offset:3px}
+.fine{margin:20px 0 0;padding-top:18px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted);display:flex;gap:8px;align-items:flex-start}.fine svg{flex:none;width:14px;height:14px;margin-top:2px;color:var(--mint)}
+footer{margin-top:20px;font-size:12.5px;color:var(--muted)}footer a{color:inherit;text-decoration:none;margin:0 8px}footer a:hover{color:var(--ink);text-decoration:underline}
+.err-icon{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--warn-bg);color:var(--warn-ink);margin-top:28px}.err-icon svg{width:22px;height:22px}
+.err h1{margin-top:16px}.steps{margin:0;padding-left:20px;color:var(--muted);font-size:14px}.steps li+li{margin-top:4px}
+@media (max-width:420px){.card{padding:28px 20px 22px;border-radius:14px}}`;
+
+const GOOGLE_G = `<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>`;
+const LOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
+
+function authShell(title: string, body: string): string {
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)} · Savepoint</title><link rel="icon" href="/savepoint-icon.svg"><style>${AUTH_STYLE}</style></head>
+<body><main class="card"><div class="brand">${siteIcon.replace('class="mark"', 'class="logo" aria-hidden="true"')}<span>Savepoint</span></div>${body}</main>
+<footer><a href="/">Home</a>·<a href="/privacy">Privacy</a>·<a href="/terms">Terms</a></footer></body></html>`;
+}
+
 function loginPage(details: Awaited<ReturnType<OAuthHelpers["describeConsent"]>>, handle: string): string {
   const name = escapeHtml(details.clientName);
-  const domain = details.clientDomain
-    ? `Published by <strong>${escapeHtml(details.clientDomain)}</strong>.`
-    : "This app registered itself; its name is not verified.";
-  const scopes = details.scope.map(escapeHtml).join(", ") || SAVEPOINT_SCOPE;
+  const verified = details.clientDomain
+    ? `<span class="tag">${escapeHtml(details.clientDomain)}</span>`
+    : `<span class="tag" title="This app registered itself; its name is not verified.">unverified</span>`;
   const loopback = details.redirectIsLoopback
-    ? '<p class="local-warning">This will send access to an app on your computer. Continue only if you just started this sign-in.</p>'
+    ? '<p class="warn">This sends access to an app on your computer. Continue only if you just started this sign-in.</p>'
     : "";
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connect Savepoint</title>
-<style>
-:root{color-scheme:light dark;font:16px/1.5 system-ui,sans-serif;background:#0c1721;color:#e9f0f4}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.card{width:min(100%,440px);padding:32px;border:1px solid #294358;border-radius:20px;background:#122330;box-shadow:0 24px 80px #03090e88}.brand{display:flex;align-items:center;gap:12px;color:#79dec3;font-weight:700}.brand img{width:38px;height:38px}h1{font-size:25px;line-height:1.2;margin:24px 0 10px}p{color:#c1d0d9}.details{padding:14px;border-radius:12px;background:#0c1b26;margin:20px 0}.details strong{color:#f5f8fa}.actions{display:grid;gap:10px;margin-top:22px}.button{width:100%;border:0;border-radius:10px;padding:13px 16px;font:inherit;font-weight:650;cursor:pointer}.google{background:#f7f9fb;color:#202a32}.cancel{background:transparent;border:1px solid #466071;color:#d5e1e7}.local-warning{color:#ffd58a}.fine{font-size:13px;color:#9eb1bc;margin:16px 0 0}button:focus-visible{outline:3px solid #67d5b4;outline-offset:2px}
-</style></head><body><main class="card"><div class="brand"><img src="/savepoint-icon.svg" alt=""><span>Savepoint</span></div>
-<h1>Continue with Google</h1><p>Sign in to connect Claude to your Savepoint projects.</p>
-<section class="details"><p><strong>${name}</strong> is requesting access to Savepoint.</p><p>${domain}</p><p>Permission: ${scopes}</p><p>Access will be sent to <strong>${escapeHtml(details.redirectHost)}</strong>.</p>${loopback}</section>
-<form method="post" action="/authorize"><input type="hidden" name="handle" value="${escapeHtml(handle)}"><div class="actions"><button class="button google" name="decision" value="approve">Continue with Google</button><button class="button cancel" name="decision" value="deny">Cancel</button></div></form>
-<p class="fine">Savepoint will not receive your Google password. You can revoke Claude’s access in your connector settings.</p></main></body></html>`;
+  return authShell("Sign in", `
+<h1>Sign in to Savepoint</h1><p class="lead">${name} wants to connect to your Savepoint projects.</p>
+<ul class="details">
+<li><span class="k">Requested by</span><span class="v">${name}${verified}</span></li>
+<li><span class="k">Access</span><span class="v">Create, read and update your projects</span></li>
+<li><span class="k">Returns to</span><span class="v">${escapeHtml(details.redirectHost)}</span></li>
+</ul>${loopback}
+<form method="post" action="/authorize"><input type="hidden" name="handle" value="${escapeHtml(handle)}"><div class="actions">
+<button class="gbtn" name="decision" value="approve">${GOOGLE_G}<span>Continue with Google</span></button>
+<button class="cancel" name="decision" value="deny">Cancel</button></div></form>
+<p class="fine">${LOCK}<span>Savepoint never sees your Google password. You can disconnect at any time from Claude’s connector settings.</span></p>`);
 }
 
 function errorPage(message: string, status = 400): Response {
-  return new Response(`<!doctype html><meta charset="utf-8"><title>Savepoint sign-in</title><main><h1>Savepoint sign-in failed</h1><p>${escapeHtml(message)}</p><p>Close this tab and reconnect Savepoint in Claude to try again.</p></main>`, {
+  const body = `<div class="err"><div class="err-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg></div>
+<h1>Sign-in didn’t complete</h1><p class="lead">${escapeHtml(message)}</p>
+<ol class="steps"><li>Close this tab.</li><li>In Claude, open the Savepoint connector and choose <strong>Connect</strong> again.</li><li>Finish sign-in in the window that opens.</li></ol></div>`;
+  return new Response(authShell("Sign-in failed", body), {
     status,
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'", "x-content-type-options": "nosniff" },
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'", "x-content-type-options": "nosniff" },
   });
 }
 
@@ -101,7 +139,11 @@ async function handleAuthorize(req: Request, env: Env): Promise<Response> {
       consent.headers.set("cache-control", "no-store");
       consent.headers.set("referrer-policy", "no-referrer");
       consent.headers.set("x-content-type-options", "nosniff");
-      consent.headers.set("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+      // Chrome applies form-action to the redirects that follow a form POST, so
+      // it must allow Google (approve) and the client's redirect origin (deny).
+      const redirectOrigin = new URL(details.redirectUri).origin;
+      const formTargets = ["'self'", "https://accounts.google.com", ...(/^https?:\/\//.test(redirectOrigin) ? [redirectOrigin] : [])].join(" ");
+      consent.headers.set("content-security-policy", `default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action ${formTargets}; base-uri 'none'; frame-ancestors 'none'`);
       return new Response(loginPage(details, consent.handle), { status: 200, headers: consent.headers });
     }
     if (req.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { allow: "GET, POST" } });
