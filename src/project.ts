@@ -43,14 +43,13 @@ export async function findProject(env: Env, code: unknown): Promise<Found> {
   return { ok: true, row, expiryMs };
 }
 
-/** Short copy-paste box shown to the user in Claude's first reply (code + how to continue). */
+/** Copy-paste box shown at the top of Claude's first reply. Short: it is pasted into new chats. */
 export function continueBox(name: string, code: string): string {
   const n = String(name).replace(/[`"]/g, "'");
   return (
     "```\n" +
-    `Continue my project "${n}".\n` +
-    `Use the Savepoint connector: call project_open with code ${code}, read NOTES.md, then continue from Pending.\n` +
-    `Save files and update NOTES.md after every step.\n` +
+    `Savepoint project "${n}", code ${code}\n` +
+    "Continue: open it with the Savepoint connector, read NOTES.md, carry on from Next.\n" +
     "```"
   );
 }

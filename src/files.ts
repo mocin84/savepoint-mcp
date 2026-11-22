@@ -63,8 +63,9 @@ async function writeFile(
   let dfc = 0;
 
   if (meta) {
-    if (baseVersion === undefined)
-      return { ok: false, conflict: true, error: `${path} already exists (version ${meta.version}). Pass base_version=${meta.version} to overwrite it, or use file_edit for small changes.` };
+    // No base_version = overwrite the current version (one chat owns its project;
+    // forcing version tracking costs a read + retry round trip for every save).
+    if (baseVersion === undefined) baseVersion = meta.version;
     if (baseVersion !== meta.version)
       return { ok: false, conflict: true, error: `Version conflict on ${path}: current version is ${meta.version}, you sent ${baseVersion}. Re-read it with file_read and merge your changes.` };
     if (state.total_bytes - meta.size + bytes > lim.maxBytes)
@@ -139,58 +140,93 @@ export async function listFiles(env: Env, p: ProjectRow, prefix: string) {
 
 // ---------- tools ----------
 
-async function fileWrite(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
-  const err = validatePath(a?.path);
-  if (err) return fail(err);
-  if (typeof a?.content !== "string") return fail("content must be a string.");
-  const state: State = { total_bytes: p.total_bytes, file_count: p.file_count };
-  const base = a.base_version === undefined || a.base_version === null ? undefined : toInt(a.base_version, -1);
-  const r = await writeFile(env, p.id, state, a.path, a.content, base);
-  if (!r.ok) return fail(r.error);
-  p.total_bytes = state.total_bytes;
-  p.file_count = state.file_count;
-  const log = a.path === NOTES_FILE ? null : await autoLogChange(env, p, [`Saved ${a.path} (v${r.version}).`]);
-  return ok(`Saved ${a.path} (v${r.version}, ${formatBytes(r.size)}).${log ? ` ${log}` : ""}`);
+type Edit = { path: string; old: string; new: string };
+
+/** Applies one unique-string edit, retrying on concurrent writes. */
+async function applyEdit(env: Env, p: ProjectRow, state: State, e: Edit): Promise<WriteResult> {
+  if (typeof e.old !== "string" || e.old === "") return { ok: false, error: "old must be a non-empty string." };
+  if (typeof e.new !== "string") return { ok: false, error: 'new must be a string ("" deletes).' };
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const r = await readConsistent(env, p.id, e.path);
+    if (!r.ok) return { ok: false, error: r.error };
+    const first = r.text.indexOf(e.old);
+    if (first < 0) return { ok: false, error: "old text not found; read the file and copy it exactly." };
+    if (r.text.indexOf(e.old, first + 1) >= 0) return { ok: false, error: "old text appears more than once; include more context." };
+    const next = r.text.slice(0, first) + e.new + r.text.slice(first + e.old.length);
+    const w = await writeFile(env, p.id, state, e.path, next, r.meta.version);
+    if (w.ok || !w.conflict) return w;
+    await sleep(20 * (attempt + 1));
+  }
+  return { ok: false, error: "too many simultaneous writes; try again." };
 }
 
-async function filesWrite(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
-  const files = a?.files;
-  if (!Array.isArray(files) || files.length === 0) return fail("files must be a non-empty array of {path, content, base_version?}.");
-  if (files.length > MAX_BATCH_FILES) return fail(`Too many files in one call (max ${MAX_BATCH_FILES}).`);
+const str = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
+
+/**
+ * save: one call stores changed files (full content and/or small edits) and,
+ * optionally, the step summary in NOTES.md. Replies are deliberately terse.
+ */
+async function save(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
+  const files: any[] = Array.isArray(a?.files) ? a.files : [];
+  const edits: any[] = Array.isArray(a?.edits) ? a.edits : [];
+  const hasNotes = [a?.done, a?.next, a?.decisions, a?.goal].some(str);
+  if (!files.length && !edits.length && !hasNotes) return fail("Nothing to save: pass files, edits, or done/next.");
+  if (files.length + edits.length > MAX_BATCH_FILES) return fail(`Max ${MAX_BATCH_FILES} files/edits per call.`);
   const seen = new Set<string>();
   for (const f of files) {
     const err = validatePath(f?.path);
     if (err) return fail(`${f?.path ?? "(no path)"}: ${err}`);
     if (typeof f.content !== "string") return fail(`${f.path}: content must be a string.`);
-    if (seen.has(f.path)) return fail(`Duplicate path in one call: ${f.path}`);
+    if (seen.has(f.path)) return fail(`Duplicate path: ${f.path}`);
     seen.add(f.path);
   }
+  for (const e of edits) {
+    const err = validatePath(e?.path);
+    if (err) return fail(`${e?.path ?? "(no path)"}: ${err}`);
+  }
+
   const state: State = { total_bytes: p.total_bytes, file_count: p.file_count };
-  const lines: string[] = [];
-  const changes: string[] = [];
-  let failed = 0;
+  const okParts: string[] = [];
+  const failParts: string[] = [];
+  const changed: string[] = [];
   for (const f of files) {
     const base = f.base_version === undefined || f.base_version === null ? undefined : toInt(f.base_version, -1);
     const r = await writeFile(env, p.id, state, f.path, f.content, base);
     if (r.ok) {
-      lines.push(`OK   ${f.path} v${r.version} (${formatBytes(r.size)})`);
-      if (f.path !== NOTES_FILE) changes.push(`Saved ${f.path} (v${r.version}).`);
-    }
-    else {
-      failed++;
-      lines.push(`FAIL ${f.path}: ${r.error}`);
-    }
+      okParts.push(`${f.path} v${r.version}`);
+      if (f.path !== NOTES_FILE) changed.push(f.path);
+    } else failParts.push(`${f.path}: ${r.error}`);
+  }
+  for (const e of edits) {
+    const r = await applyEdit(env, p, state, e);
+    if (r.ok) {
+      okParts.push(`${e.path} v${r.version}`);
+      if (e.path !== NOTES_FILE) changed.push(e.path);
+    } else failParts.push(`${e.path}: ${r.error}`);
   }
   p.total_bytes = state.total_bytes;
   p.file_count = state.file_count;
-  const log = changes.length ? await autoLogChange(env, p, changes) : null;
-  const text = `${files.length - failed}/${files.length} saved.\n${lines.join("\n")}`;
-  const withLog = log ? `${text}\n${log}` : text;
-  return failed ? fail(withLog) : ok(withLog);
+
+  const ops: NoteOp[] = [];
+  if (str(a?.goal)) ops.push({ key: "goal", text: a.goal, mode: "replace" });
+  if (str(a?.done)) ops.push({ key: "done", text: a.done, mode: "append" });
+  if (str(a?.next)) ops.push({ key: "pending", text: a.next, mode: "replace" });
+  if (str(a?.decisions)) ops.push({ key: "decisions", text: a.decisions, mode: "append" });
+  if (changed.length) ops.push({ key: "log", text: `saved ${[...new Set(changed)].join(", ")}`, mode: "append" });
+  let noteMsg = "";
+  if (ops.length) {
+    const n = await updateNotes(env, p, ops);
+    noteMsg = n.ok ? (hasNotes ? " notes ok" : "") : ` (files saved; NOTES.md failed: ${n.error})`;
+  }
+  const saved = okParts.length ? "saved " + okParts.join(", ") : "";
+  const failed = failParts.length ? `\nFAILED ${failParts.join("\nFAILED ")}` : "";
+  const text = `${saved}${failed}${noteMsg}`.trim() || "ok";
+  return failParts.length ? fail(text) : ok(text);
 }
 
-async function fileRead(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
-  const err = validatePath(a?.path);
+async function read(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
+  if (a?.path === undefined || a?.path === null || a?.path === "") return list(env, p, a);
+  const err = validatePath(a.path);
   if (err) return fail(err);
   const r = await readConsistent(env, p.id, a.path);
   if (!r.ok) return fail(r.error);
@@ -212,46 +248,11 @@ async function fileRead(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
     chars += line.length + 1;
     last = n;
   }
-  const more = last < total ? `\n[more: call file_read with start_line=${last + 1}]` : "";
+  const more = last < total ? `\n[more: call read with start_line=${last + 1}]` : "";
   return ok(`${a.path} v${r.meta.version} | lines ${start}-${last} of ${total}\n${out.join("\n")}${more}`);
 }
 
-async function fileEdit(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
-  const err = validatePath(a?.path);
-  if (err) return fail(err);
-  if (typeof a?.old_str !== "string" || a.old_str === "") return fail("old_str must be a non-empty string.");
-  if (typeof a?.new_str !== "string") return fail("new_str must be a string (use \"\" to delete the text).");
-  const strict = a.base_version !== undefined && a.base_version !== null;
-  const base = strict ? toInt(a.base_version, -1) : undefined;
-  const state: State = { total_bytes: p.total_bytes, file_count: p.file_count };
-
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    const r = await readConsistent(env, p.id, a.path);
-    if (!r.ok) return fail(r.error);
-    if (strict && base !== r.meta.version)
-      return fail(`Version conflict on ${a.path}: current version is ${r.meta.version}, you sent ${base}. Re-read it with file_read.`);
-    const first = r.text.indexOf(a.old_str);
-    if (first < 0) return fail("old_str not found. Use file_read and copy the exact text (including spaces and line breaks).");
-    if (r.text.indexOf(a.old_str, first + 1) >= 0) return fail("old_str appears more than once. Add surrounding text to make it unique.");
-    const next = r.text.slice(0, first) + a.new_str + r.text.slice(first + a.old_str.length);
-    state.total_bytes = p.total_bytes; // approximate; exact size limits are enforced in writeFile
-    const w = await writeFile(env, p.id, state, a.path, next, r.meta.version);
-    if (w.ok) {
-      p.total_bytes = state.total_bytes;
-      p.file_count = state.file_count;
-      const log = a.path === NOTES_FILE ? null : await autoLogChange(env, p, [`Edited ${a.path} (v${w.version}).`]);
-      return ok(`Edited ${a.path} (v${w.version}).${log ? ` ${log}` : ""}`);
-    }
-    if (w.conflict && !strict) {
-      await sleep(20 * (attempt + 1));
-      continue;
-    }
-    return fail(w.error);
-  }
-  return fail(`Could not edit ${a.path}: too many simultaneous writes. Try again.`);
-}
-
-async function fileList(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
+async function list(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
   const prefix = typeof a?.prefix === "string" ? a.prefix : "";
   const { rows, truncated } = await listFiles(env, p, prefix);
   if (rows.length === 0) return ok(prefix ? `No files under "${prefix}".` : "No files.");
@@ -259,10 +260,10 @@ async function fileList(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
   return ok(`${lines.join("\n")}${truncated ? `\n... more than ${LIST_LIMIT} files, narrow with prefix` : ""}`);
 }
 
-async function fileDelete(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
+async function remove(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
   const err = validatePath(a?.path);
   if (err) return fail(err);
-  if (a.path === NOTES_FILE) return fail("NOTES.md cannot be deleted. Use notes_update or file_edit to change it.");
+  if (a.path === NOTES_FILE) return fail("NOTES.md cannot be deleted.");
   const meta = await getMeta(env, p.id, a.path);
   if (!meta) return fail(`File not found: ${a.path}.`);
   await env.DB.prepare("DELETE FROM files WHERE project_id = ? AND path = ?").bind(p.id, a.path).run();
@@ -274,8 +275,8 @@ async function fileDelete(env: Env, p: ProjectRow, a: any): Promise<ToolResult> 
     .run();
   p.total_bytes = Math.max(0, p.total_bytes - meta.size);
   p.file_count = Math.max(0, p.file_count - 1);
-  const log = await autoLogChange(env, p, [`Deleted ${a.path}.`]);
-  return ok(`Deleted ${a.path}.${log ? ` ${log}` : ""}`);
+  const n = await updateNotes(env, p, [{ key: "log", text: `deleted ${a.path}`, mode: "append" }]);
+  return ok(`Deleted ${a.path}.${n.ok ? "" : ` (NOTES.md failed: ${n.error})`}`);
 }
 
 // ---------- NOTES.md handling ----------
@@ -288,8 +289,11 @@ const SECTIONS: Record<string, string> = {
   log: "Handoff log",
 };
 const PLACEHOLDERS = new Set(["- (nothing yet)", "- (fill in)", "(what this project is for - fill in)"]);
+/** The automatic log keeps only recent lines so NOTES.md (read on every resume) stays small. */
+const LOG_KEEP = 15;
 
 type Section = { title: string; body: string[] };
+type NoteOp = { key: string; text: string; mode: "append" | "replace" };
 
 function parseNotes(text: string): { pre: string[]; sections: Section[] } {
   const pre: string[] = [];
@@ -323,155 +327,133 @@ function toLines(key: string, text: string, stamp: boolean): string[] {
   return lines.map((l) => (/^\s*([-*]|\d+\.)\s/.test(l) ? l : stamp ? `- ${ts}: ${l}` : `- ${l}`));
 }
 
-async function notesUpdate(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
-  const key = String(a?.section ?? "").toLowerCase();
-  if (!SECTIONS[key]) return fail("section must be one of: goal, done, pending, decisions, log.");
-  if (typeof a?.text !== "string" || a.text.trim() === "") return fail("text is required.");
-  const mode = a?.mode === "replace" ? "replace" : "append";
-  const title = SECTIONS[key];
+/** Applies several section updates to NOTES.md in one read-modify-write. */
+async function updateNotes(
+  env: Env,
+  p: ProjectRow,
+  ops: NoteOp[]
+): Promise<{ ok: true; version: number; size: number } | { ok: false; error: string }> {
   const state: State = { total_bytes: p.total_bytes, file_count: p.file_count };
-
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     const r = await readConsistent(env, p.id, NOTES_FILE);
-    if (!r.ok) return fail(r.error);
+    if (!r.ok) return { ok: false, error: r.error };
     const notes = parseNotes(r.text);
-    let sec = notes.sections.find((s) => s.title.toLowerCase() === title.toLowerCase());
-    if (!sec) {
-      sec = { title, body: [] };
-      notes.sections.push(sec);
+    for (const op of ops) {
+      const title = SECTIONS[op.key];
+      let sec = notes.sections.find((s) => s.title.toLowerCase() === title.toLowerCase());
+      if (!sec) {
+        sec = { title, body: [] };
+        notes.sections.push(sec);
+      }
+      const existing = sec.body.filter((l) => l.trim() !== "" && !PLACEHOLDERS.has(l.trim()));
+      const added = toLines(op.key, op.text, op.key === "log" && op.mode === "append");
+      let body = op.mode === "replace" ? added : [...existing, ...added];
+      if (op.key === "log" && body.length > LOG_KEEP) body = body.slice(-LOG_KEEP);
+      sec.body = body;
     }
-    const existing = sec.body.filter((l) => l.trim() !== "" && !PLACEHOLDERS.has(l.trim()));
-    const added = toLines(key, a.text, key === "log" && mode === "append");
-    sec.body = mode === "replace" ? added : [...existing, ...added];
     const next = renderNotes(notes);
     state.total_bytes = p.total_bytes;
     const w = await writeFile(env, p.id, state, NOTES_FILE, next, r.meta.version);
     if (w.ok) {
       p.total_bytes = state.total_bytes;
       p.file_count = state.file_count;
-      const warn = next.length > 6000 ? ` Warning: NOTES.md is ${next.length} chars and project_open shows only the first 8000. Condense old items with mode=replace.` : "";
-      return ok(`NOTES.md updated: ${title} (${mode}, v${w.version}).${warn}`);
+      return { ok: true, version: w.version, size: next.length };
     }
     if (w.conflict) {
       await sleep(20 * (attempt + 1));
       continue;
     }
-    return fail(w.error);
+    return { ok: false, error: w.error };
   }
-  return fail("Could not update NOTES.md: too many simultaneous writes. Try again.");
+  return { ok: false, error: "too many simultaneous writes" };
 }
 
-async function autoLogChange(env: Env, p: ProjectRow, changes: string[]): Promise<string | null> {
-  const result = await notesUpdate(env, p, { section: "log", text: changes.join("\n"), mode: "append" });
-  return result.isError ? `File is saved, but automatic NOTES.md logging failed: ${result.content[0]?.text ?? "retry notes_update"}` : "NOTES.md updated automatically.";
+/** Legacy notes_update (kept as a hidden alias). */
+async function notesUpdate(env: Env, p: ProjectRow, a: any): Promise<ToolResult> {
+  const key = String(a?.section ?? "").toLowerCase();
+  if (!SECTIONS[key]) return fail("section must be one of: goal, done, pending, decisions, log.");
+  if (typeof a?.text !== "string" || a.text.trim() === "") return fail("text is required.");
+  const mode = a?.mode === "replace" ? "replace" : "append";
+  const n = await updateNotes(env, p, [{ key, text: a.text, mode }]);
+  if (!n.ok) return fail(`Could not update NOTES.md: ${n.error}`);
+  const warn = n.size > 6000 ? " Warning: NOTES.md is long; condense with mode=replace." : "";
+  return ok(`NOTES.md updated: ${SECTIONS[key]} (${mode}, v${n.version}).${warn}`);
 }
 
 // ---------- registry ----------
 
 const codeProp = { type: "string", description: "Project code" };
 
+/** Kept short on purpose: tool definitions are loaded into every chat that has the connector on. */
 export const FILE_TOOL_DEFS = [
   {
-    name: "file_write",
+    name: "save",
+    title: "Save to Savepoint",
     description:
-      "Immediately save ONE changed text file to the project after editing it; do not wait for a milestone. New file: no base_version. Existing file: base_version must equal its current version. Max 1 MB. Every successful save also appends a change entry to NOTES.md automatically. For small changes prefer file_edit.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        code: codeProp,
-        path: { type: "string", description: "Relative path, e.g. src/app.js" },
-        content: { type: "string" },
-        base_version: { type: "integer", description: "Required only when overwriting an existing file" },
-      },
-      required: ["code", "path", "content"],
-    },
-  },
-  {
-    name: "files_write",
-    description: "Immediately save several completed files in one call (max 20). Every successful file is saved and logged in NOTES.md automatically. Check per-file OK/FAIL results before continuing.",
+      "Save work right after each change. files: full content (new or rewritten files). edits: small replacements (old must match once). Add done/next when a step finishes; they update NOTES.md in the same call.",
+    annotations: { title: "Save to Savepoint", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: "object",
       properties: {
         code: codeProp,
         files: {
           type: "array",
+          items: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] },
+        },
+        edits: {
+          type: "array",
           items: {
             type: "object",
-            properties: { path: { type: "string" }, content: { type: "string" }, base_version: { type: "integer" } },
-            required: ["path", "content"],
+            properties: { path: { type: "string" }, old: { type: "string" }, new: { type: "string" } },
+            required: ["path", "old", "new"],
           },
         },
+        done: { type: "string", description: "What this step finished" },
+        next: { type: "string", description: "Remaining work (replaces Next)" },
+        decisions: { type: "string" },
+        goal: { type: "string" },
       },
-      required: ["code", "files"],
+      required: ["code"],
     },
   },
   {
-    name: "file_read",
-    description:
-      "Read a text file with line numbers and its version. Returns at most 400 lines or 30k chars per call; the result tells you the start_line to continue from.",
+    name: "read",
+    title: "Read from Savepoint",
+    description: "Read a file with line numbers (max 400 lines per call). Omit path to list files.",
+    annotations: { title: "Read from Savepoint", readOnlyHint: true, openWorldHint: false },
     inputSchema: {
       type: "object",
       properties: {
         code: codeProp,
         path: { type: "string" },
-        start_line: { type: "integer", description: "1-based, default 1" },
-        end_line: { type: "integer", description: "Inclusive, default start+399" },
+        start_line: { type: "integer" },
+        end_line: { type: "integer" },
+        prefix: { type: "string", description: "List filter when path is omitted" },
       },
-      required: ["code", "path"],
+      required: ["code"],
     },
   },
   {
-    name: "file_edit",
-    description:
-      "Immediately save ONE unique text edit in the project. old_str must appear exactly once. The successful edit is also logged to NOTES.md automatically. Use new_str \"\" to delete text.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        code: codeProp,
-        path: { type: "string" },
-        old_str: { type: "string" },
-        new_str: { type: "string" },
-        base_version: { type: "integer", description: "Optional strict version check" },
-      },
-      required: ["code", "path", "old_str", "new_str"],
-    },
-  },
-  {
-    name: "file_list",
-    description: "List files with sizes and versions. Optional prefix filter such as src/.",
-    inputSchema: { type: "object", properties: { code: codeProp, prefix: { type: "string" } }, required: ["code"] },
-  },
-  {
-    name: "file_delete",
-    description: "Delete one file from the project; the deletion is also logged to NOTES.md automatically. NOTES.md cannot be deleted.",
+    name: "remove",
+    title: "Delete a Savepoint file",
+    description: "Delete one file (not NOTES.md).",
+    annotations: { title: "Delete a Savepoint file", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     inputSchema: { type: "object", properties: { code: codeProp, path: { type: "string" } }, required: ["code", "path"] },
-  },
-  {
-    name: "notes_update",
-    description:
-      "Update NOTES.md, the handoff file the next chat reads first. File tools already log each successful file change automatically; use notes_update after EVERY milestone to summarize done, pending, and decisions. section: goal | done | pending | decisions | log. mode: append (default) or replace.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        code: codeProp,
-        section: { type: "string", enum: ["goal", "done", "pending", "decisions", "log"] },
-        text: { type: "string" },
-        mode: { type: "string", enum: ["append", "replace"] },
-      },
-      required: ["code", "section", "text"],
-    },
   },
 ];
 
-const HANDLERS: Record<string, (env: Env, p: ProjectRow, a: any) => Promise<ToolResult>> = {
-  file_write: fileWrite,
-  files_write: filesWrite,
-  file_read: fileRead,
-  file_edit: fileEdit,
-  file_list: fileList,
-  file_delete: fileDelete,
+/** Older tool names still work so existing chats and continue boxes don't break. */
+const legacy: Record<string, (env: Env, p: ProjectRow, a: any) => Promise<ToolResult>> = {
+  file_write: (env, p, a) => save(env, p, { files: [{ path: a?.path, content: a?.content, base_version: a?.base_version }] }),
+  files_write: (env, p, a) => save(env, p, { files: a?.files }),
+  file_edit: (env, p, a) => save(env, p, { edits: [{ path: a?.path, old: a?.old_str, new: a?.new_str }] }),
+  file_read: read,
+  file_list: list,
+  file_delete: remove,
   notes_update: notesUpdate,
 };
+
+const HANDLERS: Record<string, (env: Env, p: ProjectRow, a: any) => Promise<ToolResult>> = { save, read, remove, ...legacy };
 
 export async function callFileTool(env: Env, name: string, args: any): Promise<ToolResult | null> {
   const h = HANDLERS[name];

@@ -24,10 +24,12 @@ function check(label, cond, extra = "") {
 }
 
 const init = await rpc("initialize", { protocolVersion: "2025-06-18" });
-check("initialize v0.3.0", init.result?.serverInfo?.version === "0.3.0");
+check("initialize v0.4.0", init.result?.serverInfo?.version === "0.4.0");
 const iconInit = await rpc("initialize", { protocolVersion: "2025-11-25" });
 check("initialize advertises Savepoint icon", iconInit.result?.serverInfo?.title === "Savepoint" && iconInit.result?.serverInfo?.icons?.[0]?.src?.startsWith("data:image/svg+xml,"));
-check("instructions require continue box in first reply", init.result?.instructions?.includes("first user-facing reply MUST include the continue box"));
+check("instructions put the box at the top of the first reply", init.result?.instructions?.includes("top of your first reply"));
+check("instructions require live save after each file", init.result?.instructions?.includes("call save right after you create or change each file"));
+check("instructions are short (<= 1100 chars)", (init.result?.instructions?.length ?? 9999) <= 1100, init.result?.instructions?.length);
 const health = await fetch(BASEURL + "/health");
 check("health is public", health.status === 200);
 const unauth = await fetch(BASE, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 90001, method: "initialize" }) });
@@ -42,14 +44,20 @@ const authMetadataJson = await authMetadata.json();
 check("OAuth authorization server metadata is discoverable", authMetadata.status === 200 && authMetadataJson.authorization_endpoint?.endsWith("/authorize") && authMetadataJson.token_endpoint?.endsWith("/oauth/token"));
 const list = await rpc("tools/list");
 const names = list.result.tools.map((t) => t.name);
-check("10 tools listed", names.length === 10 && names.includes("project_download"), names.join(","));
+check("6 tools listed", names.length === 6 && ["project_start", "project_open", "save", "read", "remove", "project_download"].every((n) => names.includes(n)), names.join(","));
+const byName = Object.fromEntries(list.result.tools.map((t) => [t.name, t]));
+check("read tools are marked read-only", ["project_open", "read", "project_download"].every((n) => byName[n].annotations?.readOnlyHint === true));
+check("save is a non-destructive write", byName.save.annotations?.readOnlyHint === false && byName.save.annotations?.destructiveHint === false);
+check("remove is marked destructive", byName.remove.annotations?.destructiveHint === true);
+check("tool definitions are compact (<= 3500 chars)", JSON.stringify(list.result.tools).length <= 3500, JSON.stringify(list.result.tools).length);
 
 const created = await tool("project_create", { name: "Smoke" });
 const code = created.text.match(/[2-9A-Z]{5}-[2-9A-Z]{5}-[2-9A-Z]{5}-[2-9A-Z]{5}/)?.[0];
 check("project_create returns code", !!code, created.text);
 const box = created.text.match(/```\n([\s\S]*?)\n```/);
-check("create result has a copyable continue box", !!box && box[1].includes("project_open") && box[1].includes(code) && box[1].includes("NOTES.md"), created.text);
-check("create result explicitly requires box in first reply", created.text.includes("FIRST REPLY REQUIREMENT"), created.text);
+check("create result has a copyable continue box", !!box && box[1].includes(code) && box[1].includes("NOTES.md"), created.text);
+check("create result tells Claude to show the box first", created.text.includes("top of your reply"), created.text);
+check("create result is short (<= 400 chars)", created.text.length <= 400, created.text.length);
 check("continue box names the Savepoint connector", !!box && box[1].includes("Savepoint connector"), box?.[1]);
 check("continue box is short (<= 400 chars)", !!box && box[1].length <= 400, box?.[1]?.length);
 check("create result does not push limit/session talk", !/usage limit|next session/i.test(created.text.replace(/Do not mention usage limits or future sessions\./, "")), created.text);
@@ -57,16 +65,16 @@ check("create result does not push limit/session talk", !/usage limit|next sessi
 let r = await tool("file_write", { code, path: "src/a.txt", content: "line1\nline2\nline3\n" });
 check("file_write new -> v1", !r.isError && r.text.includes("v1"), r.text);
 let o = await tool("project_open", { code });
-check("file_write automatically updates NOTES.md", o.text.includes("Saved src/a.txt (v1)."), o.text);
+check("file_write automatically updates NOTES.md", o.text.includes("saved src/a.txt"), o.text);
 r = await tool("file_write", { code, path: "src/a.txt", content: "x" });
-check("overwrite without base_version rejected", r.isError && r.text.includes("base_version=1"), r.text);
+check("overwrite without base_version is accepted -> v2", !r.isError && r.text.includes("v2"), r.text);
 r = await tool("file_write", { code, path: "src/a.txt", content: "x", base_version: 5 });
 check("wrong base_version -> conflict", r.isError && r.text.includes("conflict"), r.text);
-r = await tool("file_write", { code, path: "src/a.txt", content: "line1\nline2\nline3\nline4\n", base_version: 1 });
-check("overwrite with base_version -> v2", !r.isError && r.text.includes("v2"), r.text);
+r = await tool("file_write", { code, path: "src/a.txt", content: "line1\nline2\nline3\nline4\n", base_version: 2 });
+check("overwrite with base_version -> v3", !r.isError && r.text.includes("v3"), r.text);
 
 r = await tool("file_read", { code, path: "src/a.txt" });
-check("file_read numbered + version", r.text.includes("v2") && r.text.includes("1| line1") && r.text.includes("lines 1-4 of 4"), r.text);
+check("file_read numbered + version", r.text.includes("v3") &&r.text.includes("1| line1") && r.text.includes("lines 1-4 of 4"), r.text);
 r = await tool("file_read", { code, path: "src/a.txt", start_line: 2, end_line: 3 });
 check("file_read range", r.text.includes("2| line2") && r.text.includes("3| line3") && !r.text.includes("1| line1"), r.text);
 r = await tool("file_read", { code, path: "nope.txt" });
@@ -83,21 +91,38 @@ check("read next page", r.text.includes("lines 401-800 of 900"), r.text.slice(0,
 
 // edit
 r = await tool("file_edit", { code, path: "src/a.txt", old_str: "line2", new_str: "LINE-TWO" });
-check("file_edit unique", !r.isError && r.text.includes("v3"), r.text);
+check("file_edit unique", !r.isError && r.text.includes("v4"), r.text);
 o = await tool("project_open", { code });
-check("file_edit automatically updates NOTES.md", o.text.includes("Edited src/a.txt (v3)."), o.text);
+check("file_edit automatically updates NOTES.md", /saved src\/a\.txt/.test(o.text), o.text);
+check("project_open shows the formatted code", o.text.includes(`code ${code}`), o.text.slice(0, 120));
 r = await tool("file_edit", { code, path: "src/a.txt", old_str: "line", new_str: "L" });
 check("file_edit ambiguous rejected", r.isError && r.text.includes("more than once"), r.text);
 r = await tool("file_edit", { code, path: "src/a.txt", old_str: "zzz", new_str: "L" });
 check("file_edit not found rejected", r.isError && r.text.includes("not found"), r.text);
-r = await tool("file_edit", { code, path: "src/a.txt", old_str: "line1", new_str: "L1", base_version: 1 });
-check("file_edit strict base_version conflict", r.isError && r.text.includes("conflict"), r.text);
-
 // batch write
 r = await tool("files_write", { code, files: [{ path: "src/b.js", content: "b" }, { path: "docs/c.md", content: "# c" }] });
-check("files_write 2 files", !r.isError && r.text.startsWith("2/2"), r.text);
-r = await tool("files_write", { code, files: [{ path: "src/b.js", content: "b2" }, { path: "docs/d.md", content: "d" }] });
-check("files_write reports per-file failure", r.isError && r.text.includes("FAIL src/b.js") && r.text.includes("OK   docs/d.md"), r.text);
+check("files_write 2 files", !r.isError && r.text.includes("src/b.js v1") && r.text.includes("docs/c.md v1"), r.text);
+r = await tool("files_write", { code, files: [{ path: "src/b.js", content: "b2", base_version: 99 }, { path: "docs/d.md", content: "d" }] });
+check("files_write reports per-file failure", r.isError && r.text.includes("FAILED src/b.js") && r.text.includes("docs/d.md v1"), r.text);
+
+// save: files + edits + notes in one call
+r = await tool("save", { code, files: [{ path: "src/e.js", content: "let e = 1;\n" }], edits: [{ path: "src/b.js", old: "b", new: "bee" }], done: "built e.js", next: "write tests" });
+check("save stores files and edits in one call", !r.isError && r.text.includes("src/e.js v1") && r.text.includes("src/b.js v2") && r.text.includes("notes ok"), r.text);
+check("save reply is terse (<= 120 chars)", r.text.length <= 120, r.text);
+o = await tool("project_open", { code });
+check("save done/next update NOTES.md", o.text.includes("- built e.js") && o.text.includes("Pending / Next steps\n- write tests"), o.text);
+r = await tool("save", { code });
+check("empty save rejected", r.isError, r.text);
+r = await tool("save", { code, edits: [{ path: "src/b.js", old: "zzz", new: "y" }] });
+check("save reports a failed edit", r.isError && r.text.includes("FAILED src/b.js"), r.text);
+r = await tool("read", { code });
+check("read without path lists files", !r.isError && r.text.includes("- src/e.js"), r.text);
+r = await tool("read", { code, path: "src/b.js" });
+check("read with path returns content", !r.isError && r.text.includes("1| bee"), r.text);
+for (let i = 0; i < 18; i++) await tool("save", { code, files: [{ path: "src/log.txt", content: "n" + i }] });
+o = await tool("project_open", { code });
+const logLines = (o.text.split("## Handoff log")[1] || "").split("\n").filter((l) => l.startsWith("- "));
+check("automatic NOTES.md log is capped at 15 lines", logLines.length === 15, logLines.length);
 
 // list
 r = await tool("file_list", { code, prefix: "src/" });
@@ -111,9 +136,11 @@ for (const bad of ["../x", "/x", "a//b", "a/./b", "dir/", "a\\b"]) {
 r = await tool("file_write", { code, path: "huge.txt", content: "x".repeat(1048577) });
 check("file > 1MB rejected", r.isError && r.text.includes("too large"), r.text.slice(0, 120));
 
-// race: 5 parallel creates of the same new path -> exactly one wins
+// race: 5 parallel writes of the same new path -> every success is one version, nothing is lost silently
 const race = await Promise.all(Array.from({ length: 5 }, (_, i) => tool("file_write", { code, path: "race.txt", content: "w" + i })));
-check("race: exactly 1 of 5 creates wins", race.filter((x) => !x.isError).length === 1, race.map((x) => x.text).join(" | "));
+const wins = race.filter((x) => !x.isError).length;
+const raceRead = await tool("file_read", { code, path: "race.txt" });
+check("race: version equals successful writes", wins >= 1 && raceRead.text.startsWith(`race.txt v${wins} `), `${wins} | ${raceRead.text} | ${race.map((x) => x.text).join(" | ")}`);
 
 // parallel notes_update: nothing lost
 await Promise.all(Array.from({ length: 5 }, (_, i) => tool("notes_update", { code, section: "done", text: "item-" + i })));
