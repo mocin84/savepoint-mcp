@@ -14,9 +14,16 @@ const BASE_TOOL_DEFS = [
   {
     name: "project_start",
     title: "Start a Savepoint project",
-    description: "Start a new project for this chat's work. Show the returned box at the top of your first reply.",
+    description: "Call first, before any work. Returns the code box; show it before doing anything else.",
     annotations: { title: "Start a Savepoint project", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    inputSchema: { type: "object", properties: { name: { type: "string", description: "Short project name" } }, required: ["name"] },
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Short project name" },
+        task: { type: "string", description: "The user's request in 1-3 lines, so a new chat can start the work even if nothing was saved yet" },
+      },
+      required: ["name", "task"],
+    },
   },
   {
     name: "project_open",
@@ -48,7 +55,8 @@ async function projectCreate(env: Env, args: any): Promise<ToolResult> {
   const name = cleanName(args?.name);
   const code = generateCode();
   const id = await sha256Hex(normalizeCode(code));
-  const notes = initialNotes(name, new Date(now).toISOString());
+  const task = typeof args?.task === "string" ? args.task.trim().slice(0, 2000) : "";
+  const notes = initialNotes(name, new Date(now).toISOString(), task);
   const bytes = new TextEncoder().encode(notes).length;
 
   await env.FILES.put(filesPrefix(id) + NOTES_FILE, notes, {
@@ -60,7 +68,9 @@ async function projectCreate(env: Env, args: any): Promise<ToolResult> {
     env.DB.prepare("INSERT INTO files (project_id, path, version, size, updated_at) VALUES (?, ?, 1, ?, ?)").bind(id, NOTES_FILE, bytes, now),
   ]);
 
-  return ok(`${continueBox(name, code)}\nPut this box at the top of your reply. Save each file right after you change it.`);
+  return ok(
+    `${continueBox(name, code)}\nNow write this box as the first thing in your reply, before any other tool call or work. Then start the task and save each file right after you change it.`
+  );
 }
 
 async function projectOpen(env: Env, args: any): Promise<ToolResult> {

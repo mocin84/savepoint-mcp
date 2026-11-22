@@ -288,7 +288,12 @@ const SECTIONS: Record<string, string> = {
   decisions: "Decisions & constraints",
   log: "Handoff log",
 };
-const PLACEHOLDERS = new Set(["- (nothing yet)", "- (fill in)", "(what this project is for - fill in)"]);
+const PLACEHOLDERS = new Set([
+  "- (nothing yet)",
+  "- (fill in)",
+  "(what this project is for - fill in)",
+  "- Start the task in Goal (nothing saved yet)",
+]);
 /** The automatic log keeps only recent lines so NOTES.md (read on every resume) stays small. */
 const LOG_KEEP = 15;
 
