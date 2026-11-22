@@ -1,6 +1,7 @@
 name = "savepoint-mcp"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
+workers_dev = true
 
 [[d1_databases]]
 binding = "DB"
@@ -26,3 +27,7 @@ CLEANUP_BUDGET = "40"            # max storage/DB calls per hourly cleanup run
 # Phase 3: hourly cleanup of expired projects and zips
 [triggers]
 crons = ["0 * * * *"]
+
+[[routes]]
+pattern = "mcp.14technologies.com.pk"
+custom_domain = true

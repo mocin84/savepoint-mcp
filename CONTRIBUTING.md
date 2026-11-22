@@ -10,6 +10,8 @@ Thanks for helping improve Savepoint. Please keep changes focused and explain th
 4. Start the local Worker with `npx wrangler dev --local --port 8787 --var MAX_FILES:12 --var RATE_LIMIT_PER_MIN:100000`.
 5. In a second terminal, run `SMOKE_MAXFILES=12 npm run smoke`.
 
+In PowerShell, set the environment variable first with `$env:SMOKE_MAXFILES = "12"`.
+
 For changes to expiry or scheduled cleanup, also run the cron smoke described in `scripts/smoke-cron.mjs`. Run `npx tsc --noEmit` before opening a pull request.
 
 ## Pull requests
