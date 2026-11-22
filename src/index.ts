@@ -7,6 +7,7 @@ import {
 } from "@cloudflare/workers-oauth-provider";
 import { handleMcp } from "./mcp";
 import { cleanup, handleDownload } from "./downloads";
+import { publicIcon, publicPage } from "./site";
 
 export interface Env {
   DB: D1Database;
@@ -229,7 +230,12 @@ const defaultHandler = {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     if (req.method === "OPTIONS") return withCors(new Response(null, { status: 204 }));
-    if (url.pathname === "/" || url.pathname === "/health") {
+    if (req.method === "GET") {
+      if (url.pathname === "/savepoint-icon.svg") return publicIcon();
+      const sitePage = publicPage(url.pathname);
+      if (sitePage) return sitePage;
+    }
+    if (url.pathname === "/health") {
       return withCors(new Response("savepoint-mcp is running. MCP endpoint: /mcp", { status: 200 }));
     }
     if (url.pathname === "/authorize") return handleAuthorize(req, env);
