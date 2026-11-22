@@ -292,6 +292,14 @@ export default {
     const origin = originFor(req, env);
     const requestUrl = new URL(req.url);
     if (requestUrl.origin !== origin) {
+      // OAuth helper cookies are host-only (__Host- cookies). Keep the browser
+      // on the canonical host before starting sign-in so Google's callback
+      // returns to the host that received the binding cookie.
+      if (requestUrl.pathname === "/authorize" || requestUrl.pathname === "/oauth/google/callback") {
+        requestUrl.protocol = new URL(origin).protocol;
+        requestUrl.host = new URL(origin).host;
+        return Promise.resolve(Response.redirect(requestUrl.toString(), 308));
+      }
       requestUrl.protocol = new URL(origin).protocol;
       requestUrl.host = new URL(origin).host;
     }
