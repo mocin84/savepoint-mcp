@@ -1,32 +1,30 @@
 <p align="center">
-  <img src="savepoint-icon.svg" width="88" height="88" alt="Savepoint logo: a checked save box" />
+  <img src="docs/savepoint-logo.jpg" width="320" alt="SavePoint logo" />
 </p>
-
-<h1 align="center">Savepoint</h1>
 
 <p align="center"><strong>Keep project files available across Claude chats.</strong><br />A small remote MCP server backed by Cloudflare Workers, D1, and R2.</p>
 
 <p align="center">
   <a href="https://github.com/mocin84/savepoint-mcp/actions/workflows/validate.yml"><img alt="Validation" src="https://github.com/mocin84/savepoint-mcp/actions/workflows/validate.yml/badge.svg" /></a>
-  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-173B55.svg" />
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-E0242B.svg" />
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-Worker-3178C6.svg" />
 </p>
 
-Savepoint gives Claude a place to save a text-based project and pick it up in another chat. It returns a short continue box for the next chat, saves file changes made through its MCP tools, and keeps a project handoff note in `NOTES.md`.
+SavePoint gives Claude a place to save a text-based project and pick it up in another chat. It returns a short continue box for the next chat, saves file changes made through its MCP tools, and keeps a project handoff note in `NOTES.md`.
 
-> Savepoint is an independent open-source project and is not affiliated with or endorsed by Anthropic or Cloudflare.
+> SavePoint is an independent open-source project and is not affiliated with or endorsed by Anthropic or Cloudflare.
 
 ## How it works
 
-![Diagram showing Claude chats connecting to the Savepoint Worker, which stores project files in R2 and project metadata in D1](docs/savepoint-overview.svg)
+![Diagram showing Claude chats connecting to the SavePoint Worker, which stores project files in R2 and project metadata in D1](docs/savepoint-overview.svg)
 
 1. Add the remote MCP connector to Claude and enable it in a chat.
-2. Ask Claude to start a project. Savepoint creates a project and returns a continue box.
-3. Claude saves files with Savepoint tools. Successful file writes, edits, and deletes are logged to `NOTES.md`.
+2. Ask Claude to start a project. SavePoint creates a project and returns a continue box.
+3. Claude saves files with SavePoint tools. Successful file writes, edits, and deletes are logged to `NOTES.md`.
 4. Paste the continue box into another chat with the connector enabled to reopen the project.
 5. Ask for a ZIP download when you want a local copy.
 
-Claude must call Savepoint's file tools for changes to be stored. Server instructions encourage it to create the project before work and save each edit right away, but the model controls whether and when it calls tools.
+Claude must call SavePoint's file tools for changes to be stored. Server instructions encourage it to create the project before work and save each edit right away, but the model controls whether and when it calls tools.
 
 ## Features
 
@@ -40,7 +38,7 @@ Claude must call Savepoint's file tools for changes to be stored. Server instruc
 
 ## Deploy on Cloudflare
 
-Savepoint is designed for Cloudflare Workers, D1, and R2. The default configuration uses free-tier-compatible settings, but quotas and account usage can change. Check current Cloudflare limits and your account usage before deployment.
+SavePoint is designed for Cloudflare Workers, D1, and R2. The default configuration uses free-tier-compatible settings, but quotas and account usage can change. Check current Cloudflare limits and your account usage before deployment.
 
 ### Requirements
 
@@ -82,12 +80,12 @@ This deployment also uses the custom domain `mcp.14technologies.com.pk`. Custom 
 
 In Claude, go to **Customize → Connectors → Add custom connector → Web**:
 
-- **Name:** Savepoint
+- **Name:** SavePoint
 - **URL for this deployment:** `https://mcp.14technologies.com.pk/mcp`
 - **URL for a fresh deployment:** `https://<worker-name>.<your-subdomain>.workers.dev/mcp` (or your configured custom domain)
-- **Authentication:** choose the OAuth sign-in option Claude detects. Savepoint sends you to Google to sign in, then asks you to authorize Claude.
+- **Authentication:** choose the OAuth sign-in option Claude detects. SavePoint sends you to Google to sign in, then asks you to authorize Claude.
 
-Savepoint issues Claude short-lived OAuth access tokens and refresh tokens; it does not ask you to paste a shared API key into Claude. Existing clients can continue using the optional `ACCESS_KEY` as a bearer token while migrating. Google OAuth credentials are required for new sign-ins.
+SavePoint issues Claude short-lived OAuth access tokens and refresh tokens; it does not ask you to paste a shared API key into Claude. Existing clients can continue using the optional `ACCESS_KEY` as a bearer token while migrating. Google OAuth credentials are required for new sign-ins.
 
 On Claude Free, enable the connector for each chat from the **+ → Connectors** menu. Claude's remote connector UI and server-icon rendering are controlled by Claude; the project advertises an MCP icon where supported.
 
@@ -104,7 +102,7 @@ Default limits are in `wrangler.toml`:
 | Download link lifetime | 15 minutes |
 | Requests per IP per minute | 120 |
 
-Only changes extend the project expiry. Reads, opening, and downloading do not. Expired projects are blocked immediately and removed from D1 and R2 by the hourly cleanup job. Savepoint currently supports UTF-8 text files; binary file storage and code execution are out of scope.
+Only changes extend the project expiry. Reads, opening, and downloading do not. Expired projects are blocked immediately and removed from D1 and R2 by the hourly cleanup job. SavePoint currently supports UTF-8 text files; binary file storage and code execution are out of scope.
 
 Projects use a project code as their access credential. Anyone who obtains a code can work with that project, so share continue boxes only with the intended collaborators. The connector access key applies across the whole Worker and is not a per-user identity system.
 

@@ -48,8 +48,8 @@ export function continueBox(name: string, code: string): string {
   const n = String(name).replace(/[`"]/g, "'");
   return (
     "```\n" +
-    `Savepoint project "${n}", code ${code}\n` +
-    "Continue: open it with the Savepoint connector, read NOTES.md, carry on from Next.\n" +
+    `SavePoint project "${n}", code ${code}\n` +
+    "Continue: open it with the SavePoint connector, read NOTES.md, carry on from Next.\n" +
     "```"
   );
 }

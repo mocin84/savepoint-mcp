@@ -34,3 +34,14 @@ CREATE TABLE IF NOT EXISTS downloads (
 );
 CREATE INDEX IF NOT EXISTS idx_downloads_expires ON downloads(expires_at);
 CREATE INDEX IF NOT EXISTS idx_downloads_project ON downloads(project_id);
+
+-- Google accounts that have signed in (name, email, first/last sign-in, count).
+-- Created lazily by the Worker too, so existing databases need no migration.
+CREATE TABLE IF NOT EXISTS users (
+  google_sub TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  first_seen INTEGER NOT NULL,
+  last_seen INTEGER NOT NULL,
+  sign_ins INTEGER NOT NULL DEFAULT 1
+);

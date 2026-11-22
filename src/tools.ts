@@ -13,9 +13,9 @@ const NOTES_PREVIEW_CHARS = 6000;
 const BASE_TOOL_DEFS = [
   {
     name: "project_start",
-    title: "Start a Savepoint project",
+    title: "Start a SavePoint project",
     description: "Call first, before any work. Returns the code box; show it before doing anything else.",
-    annotations: { title: "Start a Savepoint project", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    annotations: { title: "Start a SavePoint project", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -27,18 +27,18 @@ const BASE_TOOL_DEFS = [
   },
   {
     name: "project_open",
-    title: "Open a Savepoint project",
+    title: "Open a SavePoint project",
     description: "Open a project by code. Returns files and NOTES.md; continue from Next.",
-    annotations: { title: "Open a Savepoint project", readOnlyHint: true, openWorldHint: false },
+    annotations: { title: "Open a SavePoint project", readOnlyHint: true, openWorldHint: false },
     inputSchema: { type: "object", properties: { code: { type: "string", description: "Project code" } }, required: ["code"] },
   },
 ];
 
 const DOWNLOAD_TOOL_DEF = {
   name: "project_download",
-  title: "Download Savepoint project",
+  title: "Download SavePoint project",
   description: "Zip all files and return a download link (valid ~15 min). Only when the user asks.",
-  annotations: { title: "Download Savepoint project", readOnlyHint: true, openWorldHint: false },
+  annotations: { title: "Download SavePoint project", readOnlyHint: true, openWorldHint: false },
   inputSchema: { type: "object", properties: { code: { type: "string", description: "Project code" } }, required: ["code"] },
 };
 
@@ -79,7 +79,8 @@ async function projectOpen(env: Env, args: any): Promise<ToolResult> {
   const { row, expiryMs } = found;
 
   const { rows, truncated } = await listFiles(env, row, "");
-  const tree = rows.map((r) => `- ${r.path} (v${r.version}, ${formatBytes(r.size)})`).join("\n") || "(no files)";
+  // Paths only: versions and sizes are not needed to continue and cost tokens on every resume.
+  const tree = rows.map((r) => `- ${r.path}`).join("\n") || "(no files)";
   const more = truncated ? "\n... more files, use read with a prefix" : "";
 
   const notesObj = await env.FILES.get(filesPrefix(row.id) + NOTES_FILE);

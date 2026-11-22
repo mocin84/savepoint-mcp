@@ -7,7 +7,9 @@ import {
 } from "@cloudflare/workers-oauth-provider";
 import { handleMcp } from "./mcp";
 import { cleanup, handleDownload } from "./downloads";
-import { icon as siteIcon, publicIcon, publicPage } from "./site";
+import { publicIcon, publicPage } from "./site";
+import { markSvg, wordmark } from "./brand";
+import { finishAdminExport, isAdminState, recordSignIn, startAdminExport, type GoogleProfile } from "./admin";
 
 export interface Env {
   DB: D1Database;
@@ -17,6 +19,7 @@ export interface Env {
   ACCESS_KEY?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  ADMIN_EMAILS?: string;
   PUBLIC_ORIGIN?: string;
   MAX_PROJECTS_PER_DAY?: string;
   RATE_LIMIT_PER_MIN?: string;
@@ -63,11 +66,11 @@ async function pkceChallenge(verifier: string): Promise<string> {
 // Shared look for the sign-in pages. Matches the public site's palette and
 // needs no external resources, so it works under the strict page CSP.
 const AUTH_STYLE = `
-:root{color-scheme:light dark;--paper:#f4f7f5;--card:#fff;--ink:#102b3d;--muted:#5a6e7b;--line:#dde6e2;--soft:#f3f7f5;--mint:#2fa985;--warn-bg:#fff6e5;--warn-ink:#7a4d00;--btn-border:#747775;--btn-ink:#1f1f1f;--btn-bg:#fff;--btn-hover:#f6f8f7;--shadow:0 1px 2px #102b3d0d,0 12px 40px #102b3d14;font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-@media (prefers-color-scheme:dark){:root{--paper:#0b1620;--card:#111f2b;--ink:#e8eff3;--muted:#9fb2be;--line:#22384a;--soft:#0d1b26;--mint:#6fd8b8;--warn-bg:#2d2411;--warn-ink:#f3cf87;--btn-border:#8e918f;--btn-ink:#e3e3e3;--btn-bg:#131314;--btn-hover:#1d1e20;--shadow:0 12px 40px #0006}}
+:root{color-scheme:light dark;--paper:#f7f7f8;--card:#fff;--ink:#12171d;--muted:#5b6470;--line:#e3e4e8;--soft:#f6f6f7;--mint:#e0242b;--warn-bg:#fff6e5;--warn-ink:#7a4d00;--btn-border:#747775;--btn-ink:#1f1f1f;--btn-bg:#fff;--btn-hover:#f6f8f7;--shadow:0 1px 2px #12171d0d,0 12px 40px #12171d14;font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@media (prefers-color-scheme:dark){:root{--paper:#0e1115;--card:#161b21;--ink:#eceef1;--muted:#a3aab3;--line:#2a313a;--soft:#12161b;--mint:#ff5359;--warn-bg:#2d2411;--warn-ink:#f3cf87;--btn-border:#8e918f;--btn-ink:#e3e3e3;--btn-bg:#131314;--btn-hover:#1d1e20;--shadow:0 12px 40px #0006}}
 *{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--paper);color:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px}
 .card{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:36px 32px 28px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:650;font-size:15px;letter-spacing:.01em}.brand .logo{width:32px;height:32px;flex:none}
+.brand{display:flex;align-items:center;gap:10px}.brand .logo{width:36px;height:36px;flex:none}.wordmark{font-weight:750;font-size:17px;letter-spacing:-.02em}
 h1{font-size:22px;line-height:1.3;font-weight:650;margin:28px 0 6px;letter-spacing:-.01em}.lead{color:var(--muted);margin:0 0 24px}
 .details{list-style:none;margin:0 0 24px;padding:0;border:1px solid var(--line);border-radius:12px;background:var(--soft)}
 .details li{display:flex;justify-content:space-between;gap:16px;padding:11px 14px;font-size:14px}.details li+li{border-top:1px solid var(--line)}
@@ -89,8 +92,8 @@ const LOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
 
 function authShell(title: string, body: string): string {
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)} · Savepoint</title><link rel="icon" href="/savepoint-icon.svg"><style>${AUTH_STYLE}</style></head>
-<body><main class="card"><div class="brand">${siteIcon.replace('class="mark"', 'class="logo" aria-hidden="true"')}<span>Savepoint</span></div>${body}</main>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)} · SavePoint</title><link rel="icon" href="/savepoint-icon.svg"><style>${AUTH_STYLE}</style></head>
+<body><main class="card"><div class="brand">${markSvg("logo", "var(--ink)")}${wordmark("var(--ink)")}</div>${body}</main>
 <footer><a href="/">Home</a>·<a href="/privacy">Privacy</a>·<a href="/terms">Terms</a></footer></body></html>`;
 }
 
@@ -103,7 +106,7 @@ function loginPage(details: Awaited<ReturnType<OAuthHelpers["describeConsent"]>>
     ? '<p class="warn">This sends access to an app on your computer. Continue only if you just started this sign-in.</p>'
     : "";
   return authShell("Sign in", `
-<h1>Sign in to Savepoint</h1><p class="lead">${name} wants to connect to your Savepoint projects.</p>
+<h1>Sign in to SavePoint</h1><p class="lead">${name} wants to connect to your SavePoint projects.</p>
 <ul class="details">
 <li><span class="k">Requested by</span><span class="v">${name}${verified}</span></li>
 <li><span class="k">Access</span><span class="v">Create, read and update your projects</span></li>
@@ -112,13 +115,13 @@ function loginPage(details: Awaited<ReturnType<OAuthHelpers["describeConsent"]>>
 <form method="post" action="/authorize"><input type="hidden" name="handle" value="${escapeHtml(handle)}"><div class="actions">
 <button class="gbtn" name="decision" value="approve">${GOOGLE_G}<span>Continue with Google</span></button>
 <button class="cancel" name="decision" value="deny">Cancel</button></div></form>
-<p class="fine">${LOCK}<span>Savepoint never sees your Google password. You can disconnect at any time from Claude’s connector settings.</span></p>`);
+<p class="fine">${LOCK}<span>SavePoint never sees your Google password. You can disconnect at any time from Claude’s connector settings.</span></p>`);
 }
 
 function errorPage(message: string, status = 400): Response {
   const body = `<div class="err"><div class="err-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg></div>
 <h1>Sign-in didn’t complete</h1><p class="lead">${escapeHtml(message)}</p>
-<ol class="steps"><li>Close this tab.</li><li>In Claude, open the Savepoint connector and choose <strong>Connect</strong> again.</li><li>Finish sign-in in the window that opens.</li></ol></div>`;
+<ol class="steps"><li>Close this tab.</li><li>In Claude, open the SavePoint connector and choose <strong>Connect</strong> again.</li><li>Finish sign-in in the window that opens.</li></ol></div>`;
   return new Response(authShell("Sign-in failed", body), {
     status,
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'", "x-content-type-options": "nosniff" },
@@ -128,7 +131,7 @@ function errorPage(message: string, status = 400): Response {
 async function handleAuthorize(req: Request, env: Env): Promise<Response> {
   const oauth = env.OAUTH_PROVIDER;
   if (!oauth || !env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
-    return errorPage("Google sign-in is not configured for this Savepoint server yet.", 503);
+    return errorPage("Google sign-in is not configured for this SavePoint server yet.", 503);
   }
   try {
     if (req.method === "GET") {
@@ -182,9 +185,39 @@ async function handleAuthorize(req: Request, env: Env): Promise<Response> {
   }
 }
 
+/** Exchanges a Google code for a verified profile. Returns an error message on failure. */
+async function googleProfile(req: Request, env: Env, code: string, verifier: string): Promise<GoogleProfile | string> {
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: env.GOOGLE_CLIENT_ID ?? "",
+      client_secret: env.GOOGLE_CLIENT_SECRET ?? "",
+      redirect_uri: `${originFor(req, env)}/oauth/google/callback`,
+      grant_type: "authorization_code",
+      code_verifier: verifier,
+    }),
+  });
+  if (!tokenResponse.ok) return "Google could not complete sign-in. Check the OAuth client configuration and callback URL.";
+  const tokens = (await tokenResponse.json()) as { access_token?: string; token_type?: string };
+  if (!tokens.access_token || tokens.token_type?.toLowerCase() !== "bearer") return "Google returned an invalid sign-in response.";
+  const profileResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+    headers: { authorization: `Bearer ${tokens.access_token}` },
+  });
+  if (!profileResponse.ok) return "SavePoint could not verify your Google account.";
+  const p = (await profileResponse.json()) as { sub?: string; email?: string; email_verified?: boolean; name?: string };
+  if (!p.sub || !p.email || p.email_verified !== true) return "Use a Google account with a verified email address.";
+  return { sub: p.sub, email: p.email, name: p.name ?? "" };
+}
+
 async function handleGoogleCallback(req: Request, env: Env): Promise<Response> {
   const oauth = env.OAUTH_PROVIDER;
   if (!oauth || !env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return errorPage("Google sign-in is not configured.", 503);
+  // The admin export reuses this registered callback; its state is prefixed.
+  if (isAdminState(new URL(req.url).searchParams.get("state"))) {
+    return finishAdminExport(req, env, (code, verifier) => googleProfile(req, env, code, verifier), errorPage);
+  }
   try {
     const resumed = await oauth.finishUpstream<{ verifier: string }>(req);
     const url = new URL(req.url);
@@ -196,35 +229,16 @@ async function handleGoogleCallback(req: Request, env: Env): Promise<Response> {
     const code = url.searchParams.get("code");
     if (!code || !resumed.data?.verifier) return errorPage("Google did not return a sign-in code.");
 
-    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        code,
-        client_id: env.GOOGLE_CLIENT_ID,
-        client_secret: env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: `${originFor(req, env)}/oauth/google/callback`,
-        grant_type: "authorization_code",
-        code_verifier: resumed.data.verifier,
-      }),
-    });
-    if (!tokenResponse.ok) return errorPage("Google could not complete sign-in. Check the OAuth client configuration and callback URL.", 502);
-    const tokens = await tokenResponse.json() as { access_token?: string; token_type?: string };
-    if (!tokens.access_token || tokens.token_type?.toLowerCase() !== "bearer") return errorPage("Google returned an invalid sign-in response.", 502);
-
-    const profileResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
-      headers: { authorization: `Bearer ${tokens.access_token}` },
-    });
-    if (!profileResponse.ok) return errorPage("Savepoint could not verify your Google account.", 502);
-    const profile = await profileResponse.json() as { sub?: string; email?: string; email_verified?: boolean; name?: string; picture?: string };
-    if (!profile.sub || !profile.email || profile.email_verified !== true) return errorPage("Use a Google account with a verified email address.", 403);
+    const profile = await googleProfile(req, env, code, resumed.data.verifier);
+    if (typeof profile === "string") return errorPage(profile, profile.startsWith("Use a Google") ? 403 : 502);
+    await recordSignIn(env, profile);
 
     const { redirectTo } = await oauth.completeAuthorization({
       request: resumed.request,
       userId: `google_${profile.sub}`,
-      metadata: { email: profile.email, name: profile.name ?? "" },
+      metadata: { email: profile.email, name: profile.name },
       scope: resumed.request.scope,
-      props: { googleSub: profile.sub, email: profile.email, name: profile.name ?? "" },
+      props: { googleSub: profile.sub, email: profile.email, name: profile.name },
     });
     resumed.headers.set("location", redirectTo);
     resumed.headers.set("cache-control", "no-store");
@@ -282,6 +296,7 @@ const defaultHandler = {
     }
     if (url.pathname === "/authorize") return handleAuthorize(req, env);
     if (url.pathname === "/oauth/google/callback") return handleGoogleCallback(req, env);
+    if (url.pathname === "/admin/users.xlsx" && req.method === "GET") return startAdminExport(req, env, originFor(req, env), errorPage);
     if (url.pathname.startsWith("/dl/")) {
       if (req.method !== "GET") return withCors(new Response("Method not allowed", { status: 405 }));
       if (await rateLimited(req, env)) return withCors(new Response("Too many requests", { status: 429, headers: { "retry-after": "60" } }));
@@ -303,7 +318,7 @@ function createProvider(origin: string): OAuthProvider<Env> {
     clientRegistrationEndpoint: "/oauth/register",
     scopesSupported: [SAVEPOINT_SCOPE],
     requiredScopes: [SAVEPOINT_SCOPE],
-    resourceMetadata: { resource, authorization_servers: [origin], bearer_methods_supported: ["header"], resource_name: "Savepoint MCP" },
+    resourceMetadata: { resource, authorization_servers: [origin], bearer_methods_supported: ["header"], resource_name: "SavePoint MCP" },
     resolveExternalToken: async ({ token, env: tokenEnv }) => {
       const accepted = !!tokenEnv.ACCESS_KEY && token === tokenEnv.ACCESS_KEY;
       if (!accepted) return null;
@@ -337,7 +352,7 @@ export default {
       // OAuth helper cookies are host-only (__Host- cookies). Keep the browser
       // on the canonical host before starting sign-in so Google's callback
       // returns to the host that received the binding cookie.
-      if (requestUrl.pathname === "/authorize" || requestUrl.pathname === "/oauth/google/callback") {
+      if (requestUrl.pathname === "/authorize" || requestUrl.pathname === "/oauth/google/callback" || requestUrl.pathname === "/admin/users.xlsx") {
         requestUrl.protocol = new URL(origin).protocol;
         requestUrl.host = new URL(origin).host;
         return Promise.resolve(Response.redirect(requestUrl.toString(), 308));

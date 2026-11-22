@@ -393,10 +393,10 @@ const codeProp = { type: "string", description: "Project code" };
 export const FILE_TOOL_DEFS = [
   {
     name: "save",
-    title: "Save to Savepoint",
+    title: "Save to SavePoint",
     description:
       "Save work right after each change. files: full content (new or rewritten files). edits: small replacements (old must match once). Add done/next when a step finishes; they update NOTES.md in the same call.",
-    annotations: { title: "Save to Savepoint", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    annotations: { title: "Save to SavePoint", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -423,9 +423,9 @@ export const FILE_TOOL_DEFS = [
   },
   {
     name: "read",
-    title: "Read from Savepoint",
+    title: "Read from SavePoint",
     description: "Read a file with line numbers (max 400 lines per call). Omit path to list files.",
-    annotations: { title: "Read from Savepoint", readOnlyHint: true, openWorldHint: false },
+    annotations: { title: "Read from SavePoint", readOnlyHint: true, openWorldHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -440,9 +440,9 @@ export const FILE_TOOL_DEFS = [
   },
   {
     name: "remove",
-    title: "Delete a Savepoint file",
+    title: "Delete a SavePoint file",
     description: "Delete one file (not NOTES.md).",
-    annotations: { title: "Delete a Savepoint file", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    annotations: { title: "Delete a SavePoint file", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     inputSchema: { type: "object", properties: { code: codeProp, path: { type: "string" } }, required: ["code", "path"] },
   },
 ];

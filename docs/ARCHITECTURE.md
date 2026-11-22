@@ -1,6 +1,6 @@
 # Architecture
 
-Savepoint is a stateless remote MCP server. Claude sends JSON-RPC requests to the Worker over HTTPS. Project contents are stored as UTF-8 objects in R2; D1 stores project metadata, file versions, and expiring download records.
+SavePoint is a stateless remote MCP server. Claude sends JSON-RPC requests to the Worker over HTTPS. Project contents are stored as UTF-8 objects in R2; D1 stores project metadata, file versions, and expiring download records.
 
 ```mermaid
 flowchart LR
@@ -25,10 +25,10 @@ flowchart LR
 - `p/<project-id>/files/<path>` — file contents, including `NOTES.md`
 - `p/<project-id>/dl/<token>.zip` — temporary download archive
 
-The raw project code is not used as the storage key; Savepoint derives a project ID from its normalized hash. Project codes are bearer credentials, not user accounts. Anyone with a code can access that project.
+The raw project code is not used as the storage key; SavePoint derives a project ID from its normalized hash. Project codes are bearer credentials, not user accounts. Anyone with a code can access that project.
 
 ## Operational limits
 
 Limits are set in `wrangler.toml`. Defaults are 200 files, 1 MiB per file, 25 MiB per project, 24-hour idle expiry, 15-minute download links, and 120 MCP requests per IP per minute. Cloudflare account quotas are separate and should be checked before production use.
 
-There is no per-user identity or authorization model. A configured `ACCESS_KEY` is shared by all connector users. Keep it private and rotate it if it is exposed. Savepoint stores text files only and does not execute project code.
+There is no per-user identity or authorization model. A configured `ACCESS_KEY` is shared by all connector users. Keep it private and rotate it if it is exposed. SavePoint stores text files only and does not execute project code.

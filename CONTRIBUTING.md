@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Savepoint. Please keep changes focused and explain the user impact in your pull request.
+Thanks for helping improve SavePoint. Please keep changes focused and explain the user impact in your pull request.
 
 ## Development setup
 

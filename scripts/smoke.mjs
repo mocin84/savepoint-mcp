@@ -26,12 +26,22 @@ function check(label, cond, extra = "") {
 const init = await rpc("initialize", { protocolVersion: "2025-06-18" });
 check("initialize v0.4.0", init.result?.serverInfo?.version === "0.4.0");
 const iconInit = await rpc("initialize", { protocolVersion: "2025-11-25" });
-check("initialize advertises Savepoint icon", iconInit.result?.serverInfo?.title === "Savepoint" && iconInit.result?.serverInfo?.icons?.[0]?.src?.startsWith("data:image/svg+xml,"));
+check("initialize advertises SavePoint icon", iconInit.result?.serverInfo?.title === "SavePoint" && iconInit.result?.serverInfo?.icons?.[0]?.src?.startsWith("data:image/svg+xml,"));
 check("instructions make project_start the very first action", init.result?.instructions?.includes("your very first action is project_start"));
 check("instructions show the box before any work", init.result?.instructions?.includes("Before any planning, reading, other tool calls, or work, write the box"));
+check("instructions cover wrap-up near the limit", init.result?.instructions?.includes("near their limit") && init.result?.instructions?.includes("repeat the box"));
 check("instructions cover existing material", init.result?.instructions?.includes("save that material before continuing"));
 check("instructions require live save after each file", init.result?.instructions?.includes("call save right after you create or change each file"));
 check("instructions are short (<= 1500 chars)", (init.result?.instructions?.length ?? 9999) <= 1500, init.result?.instructions?.length);
+const iconRes = await fetch(BASEURL + "/savepoint-icon.svg");
+const iconText = await iconRes.text();
+check("icon file is the red/ink SavePoint mark", iconRes.status === 200 && iconText.startsWith("<svg xmlns=") && iconText.includes("#e0242b") && iconText.includes("#12171d"));
+const homeText = await (await fetch(BASEURL + "/")).text();
+check("homepage shows the SavePoint wordmark", homeText.includes(">Save</span>") && homeText.includes(">Point</span>"));
+const privacyText = await (await fetch(BASEURL + "/privacy")).text();
+check("privacy policy discloses the sign-in record", privacyText.includes("sign-in record") && privacyText.includes("research"));
+const adminRes = await fetch(BASEURL + "/admin/users.xlsx", { redirect: "manual" });
+check("admin export is closed until ADMIN_EMAILS is set", process.env.SMOKE_ADMIN ? adminRes.status === 302 : adminRes.status === 503, adminRes.status);
 const health = await fetch(BASEURL + "/health");
 check("health is public", health.status === 200);
 const unauth = await fetch(BASE, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 90001, method: "initialize" }) });
@@ -66,7 +76,7 @@ check("project_start stores the task as Goal", opened2.text.includes("## Goal\nB
 check("project_start sets Next before anything is saved", opened2.text.includes("Start the task in Goal"), opened2.text);
 check("project_start requires task", byName.project_start.inputSchema.required.includes("task"));
 check("create result is short (<= 400 chars)", created.text.length <= 400, created.text.length);
-check("continue box names the Savepoint connector", !!box && box[1].includes("Savepoint connector"), box?.[1]);
+check("continue box names the Savepoint connector", !!box && box[1].includes("SavePoint connector"), box?.[1]);
 check("continue box is short (<= 400 chars)", !!box && box[1].length <= 400, box?.[1]?.length);
 check("create result does not push limit/session talk", !/usage limit|next session/i.test(created.text.replace(/Do not mention usage limits or future sessions\./, "")), created.text);
 
