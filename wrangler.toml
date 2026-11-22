@@ -20,6 +20,7 @@ MAX_PROJECT_BYTES = "26214400"   # 25 MB per project
 MAX_FILES = "200"                 # files per project
 MAX_FILE_BYTES = "1048576"       # 1 MB per file
 DOWNLOAD_MINUTES = "15"          # download link lifetime
+PUBLIC_ORIGIN = "https://mcp.14technologies.com.pk" # canonical base for generated download links
 CLEANUP_BUDGET = "40"            # max storage/DB calls per hourly cleanup run
 # Optional secret (set with: npx wrangler secret put ACCESS_KEY)
 # ACCESS_KEY = "..."

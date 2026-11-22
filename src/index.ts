@@ -5,6 +5,7 @@ export interface Env {
   DB: D1Database;
   FILES: R2Bucket;
   ACCESS_KEY?: string;
+  PUBLIC_ORIGIN?: string;
   MAX_PROJECTS_PER_DAY?: string;
   RATE_LIMIT_PER_MIN?: string;
   EXPIRY_HOURS?: string;
@@ -82,7 +83,8 @@ export default {
     } catch {
       return withCors(new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }), { status: 400, headers: { "content-type": "application/json" } }));
     }
-    return withCors(await handleMcp(env, body, { origin: url.origin }));
+    const origin = env.PUBLIC_ORIGIN?.replace(/\/+$/, "") || url.origin;
+    return withCors(await handleMcp(env, body, { origin }));
   },
 
   // Hourly cron: delete expired projects, old zips and old rate-limit rows.

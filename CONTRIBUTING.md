@@ -7,7 +7,7 @@ Thanks for helping improve Savepoint. Please keep changes focused and explain th
 1. Install Node.js 20 or newer.
 2. Run `npm ci`.
 3. Apply the local schema with `npx wrangler d1 execute savepoint-db --local --file=schema.sql`.
-4. Start the local Worker with `npx wrangler dev --local --port 8787 --var MAX_FILES:12 --var RATE_LIMIT_PER_MIN:100000`.
+4. Start the local Worker with `npx wrangler dev --local --port 8787 --var MAX_FILES:12 --var RATE_LIMIT_PER_MIN:100000 --var PUBLIC_ORIGIN:http://127.0.0.1:8787`.
 5. In a second terminal, run `SMOKE_MAXFILES=12 npm run smoke`.
 
 In PowerShell, set the environment variable first with `$env:SMOKE_MAXFILES = "12"`.

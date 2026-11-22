@@ -69,6 +69,8 @@ Wrangler prints the Worker URL. The hourly cleanup trigger is configured in `wra
 
 This deployment also uses the custom domain `mcp.14technologies.com.pk`. Custom Domains require an active Cloudflare zone; Wrangler creates the DNS record and certificate. If you deploy under your own domain, replace this project's `[[routes]]` entry with your hostname or remove it before deploying. See Cloudflare's [Custom Domains guide](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/).
 
+`PUBLIC_ORIGIN` sets the canonical host used in ZIP download links. Update it to match your custom domain, or use your `workers.dev` hostname if you remove the custom-domain route.
+
 ### Connect Claude
 
 In Claude, go to **Customize → Connectors → Add custom connector → Web**:
@@ -106,7 +108,7 @@ Projects use a project code as their access credential. Anyone who obtains a cod
 npm ci
 npx tsc --noEmit
 npx wrangler d1 execute savepoint-db --local --file=schema.sql
-npx wrangler dev --local --port 8787 --var MAX_FILES:12 --var RATE_LIMIT_PER_MIN:100000
+npx wrangler dev --local --port 8787 --var MAX_FILES:12 --var RATE_LIMIT_PER_MIN:100000 --var PUBLIC_ORIGIN:http://127.0.0.1:8787
 ```
 
 With the local Worker running in another terminal:
@@ -117,7 +119,7 @@ SMOKE_MAXFILES=12 npm run smoke
 
 In PowerShell, set the test limit before running it: `$env:SMOKE_MAXFILES = "12"` then `npm run smoke`.
 
-For the cron/expiry checks, start a separate local Worker with `--test-scheduled`, `--var EXPIRY_HOURS:0.0006`, and `--var DOWNLOAD_MINUTES:0.02`, then run `npm run smoke:cron`. See the comments at the top of `scripts/smoke-cron.mjs` for the full command sequence.
+For the cron/expiry checks, start a separate local Worker with `--test-scheduled`, `--var EXPIRY_HOURS:0.0006`, `--var DOWNLOAD_MINUTES:0.02`, and `--var PUBLIC_ORIGIN:http://127.0.0.1:8787`, then run `npm run smoke:cron`. See the comments at the top of `scripts/smoke-cron.mjs` for the full command sequence.
 
 ## Project structure
 

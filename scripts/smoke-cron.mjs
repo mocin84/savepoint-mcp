@@ -1,6 +1,6 @@
 // Cron cleanup test. Needs a server started with a tiny expiry and --test-scheduled:
 //   rm -rf .wrangler/state && npx wrangler d1 execute savepoint-db --local --file=schema.sql
-//   npx wrangler dev --local --port 8787 --test-scheduled --var EXPIRY_HOURS:0.0006 --var DOWNLOAD_MINUTES:0.02
+//   npx wrangler dev --local --port 8787 --test-scheduled --var EXPIRY_HOURS:0.0006 --var DOWNLOAD_MINUTES:0.02 --var PUBLIC_ORIGIN:http://127.0.0.1:8787
 //   node scripts/smoke-cron.mjs
 // (0.0006 h = ~2.2 s project expiry, 0.02 min = 1.2 s download link life)
 const ORIGIN = process.argv[2] || "http://localhost:8787";

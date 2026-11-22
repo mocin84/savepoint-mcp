@@ -12,10 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -32,7 +32,7 @@ jobs:
       - name: Start local Worker
         shell: bash
         run: |
-          npx wrangler dev --local --port 8787 --var MAX_FILES:12 --var RATE_LIMIT_PER_MIN:100000 > worker.log 2>&1 &
+          npx wrangler dev --local --port 8787 --var MAX_FILES:12 --var RATE_LIMIT_PER_MIN:100000 --var PUBLIC_ORIGIN:http://127.0.0.1:8787 > worker.log 2>&1 &
           echo $! > worker.pid
           for attempt in {1..30}; do
             if curl --fail --silent http://127.0.0.1:8787/health > /dev/null; then
@@ -44,9 +44,13 @@ jobs:
           exit 1
 
       - name: Run smoke checks
-        run: npm run smoke
+        run: npm run smoke -- http://127.0.0.1:8787
         env:
           SMOKE_MAXFILES: "12"
+
+      - name: Show Worker log on failure
+        if: failure()
+        run: cat worker.log
 
       - name: Stop local Worker
         if: always()
