@@ -12,6 +12,10 @@ database_id = "REPLACE_WITH_YOUR_D1_ID"
 binding = "FILES"
 bucket_name = "savepoint-files"
 
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "REPLACE_WITH_YOUR_OAUTH_KV_ID"
+
 [vars]
 MAX_PROJECTS_PER_DAY = "200"
 RATE_LIMIT_PER_MIN = "120"

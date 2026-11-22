@@ -1,14 +1,16 @@
 // Smoke test for a running server. Usage: node scripts/smoke.mjs [baseUrl]
-// Local:  npx wrangler d1 execute savepoint-db --local --file=schema.sql
-//         npx wrangler dev --local --port 8787 --var MAX_FILES:8
+// Local:  npx wrangler d1 execute savepoint-db --local --config wrangler.local.toml --file=schema.sql
+//         npx wrangler dev --local --config wrangler.local.toml --port 8787 --var MAX_FILES:8
 //         SMOKE_MAXFILES=8 node scripts/smoke.mjs
 import { unzipSync } from "fflate";
 
 const BASE = (process.argv[2] || "http://localhost:8787") + "/mcp";
+const BASEURL = new URL(BASE).origin;
+const ACCESS_KEY = process.env.SMOKE_ACCESS_KEY || "local-test-key";
 let id = 0, pass = 0, failn = 0;
 
 async function rpc(method, params) {
-  const r = await fetch(BASE, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }) });
+  const r = await fetch(BASE, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${ACCESS_KEY}` }, body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }) });
   return r.json();
 }
 async function tool(name, args) {
@@ -26,6 +28,18 @@ check("initialize v0.3.0", init.result?.serverInfo?.version === "0.3.0");
 const iconInit = await rpc("initialize", { protocolVersion: "2025-11-25" });
 check("initialize advertises Savepoint icon", iconInit.result?.serverInfo?.title === "Savepoint" && iconInit.result?.serverInfo?.icons?.[0]?.src?.startsWith("data:image/svg+xml,"));
 check("instructions require continue box in first reply", init.result?.instructions?.includes("first user-facing reply MUST include the continue box"));
+const health = await fetch(BASEURL + "/health");
+check("health is public", health.status === 200);
+const unauth = await fetch(BASE, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 90001, method: "initialize" }) });
+check("unauthenticated MCP request starts OAuth", unauth.status === 401 && /oauth-protected-resource/.test(unauth.headers.get("www-authenticate") || ""));
+const wrongAuth = await fetch(BASE, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer invalid-test-key" }, body: JSON.stringify({ jsonrpc: "2.0", id: 90002, method: "initialize" }) });
+check("invalid bearer is rejected", wrongAuth.status === 401);
+const metadata = await fetch(BASEURL + "/.well-known/oauth-protected-resource/mcp");
+const metadataJson = await metadata.json();
+check("OAuth resource metadata is discoverable", metadata.status === 200 && metadataJson.resource?.endsWith("/mcp"));
+const authMetadata = await fetch(BASEURL + "/.well-known/oauth-authorization-server");
+const authMetadataJson = await authMetadata.json();
+check("OAuth authorization server metadata is discoverable", authMetadata.status === 200 && authMetadataJson.authorization_endpoint?.endsWith("/authorize") && authMetadataJson.token_endpoint?.endsWith("/oauth/token"));
 const list = await rpc("tools/list");
 const names = list.result.tools.map((t) => t.name);
 check("10 tools listed", names.length === 10 && names.includes("project_download"), names.join(","));
@@ -143,7 +157,6 @@ if (process.env.SMOKE_MAXFILES) {
 
 
 // ---------- Phase 3: download ----------
-const BASEURL = BASE.replace(/\/mcp$/, "");
 const minsLeft = (t) => { const m = t.match(/Expires in: (?:(\d+)h )?(\d+)m/); return m ? Number(m[1] || 0) * 60 + Number(m[2]) : -1; };
 const before = minsLeft((await tool("project_open", { code })).text);
 let d = await tool("project_download", { code });

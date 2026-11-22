@@ -55,13 +55,20 @@ npm ci
 npx wrangler login
 npx wrangler d1 create savepoint-db
 npx wrangler r2 bucket create savepoint-files
+npx wrangler kv namespace create OAUTH_KV
 ```
 
-Copy the D1 `database_id` from Wrangler's output into `wrangler.toml`, replacing `REPLACE_WITH_YOUR_D1_ID`. Then apply the schema, set an access key, and deploy:
+Copy the D1 `database_id` and KV namespace `id` from Wrangler's output into `wrangler.toml`, replacing the two `REPLACE_WITH_...` placeholders. In Google Cloud Console, create an OAuth client of type **Web application**, configure its consent screen for external users with the `openid`, `email`, and `profile` scopes, and add this exact authorized redirect URI:
+
+`https://mcp.14technologies.com.pk/oauth/google/callback`
+
+While the Google consent screen is in Testing, add the Google accounts that should be allowed to sign in as test users. Publish the consent screen before opening sign-in to the public. Then apply the schema, save the Google OAuth client credentials as Worker secrets, and deploy:
 
 ```sh
 npx wrangler d1 execute savepoint-db --remote --file=schema.sql
-npx wrangler secret put ACCESS_KEY
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler secret put ACCESS_KEY # optional legacy bearer access
 npx wrangler deploy
 ```
 
@@ -78,10 +85,9 @@ In Claude, go to **Customize → Connectors → Add custom connector → Web**:
 - **Name:** Savepoint
 - **URL for this deployment:** `https://mcp.14technologies.com.pk/mcp`
 - **URL for a fresh deployment:** `https://<worker-name>.<your-subdomain>.workers.dev/mcp` (or your configured custom domain)
-- **Request header:** `Authorization`
-- **Header value:** `Bearer <your ACCESS_KEY>`
+- **Authentication:** choose the OAuth sign-in option Claude detects. Savepoint sends you to Google to sign in, then asks you to authorize Claude.
 
-Keeping the key in a request header leaves the connector URL clean. Share the URL separately from the key, and send the key only to people you trust. Anyone with the shared key can call the connector tools. If you did not set `ACCESS_KEY`, omit the header; open mode is rate-limited but anyone can create projects.
+Savepoint issues Claude short-lived OAuth access tokens and refresh tokens; it does not ask you to paste a shared API key into Claude. Existing clients can continue using the optional `ACCESS_KEY` as a bearer token while migrating. Google OAuth credentials are required for new sign-ins.
 
 On Claude Free, enable the connector for each chat from the **+ → Connectors** menu. Claude's remote connector UI and server-icon rendering are controlled by Claude; the project advertises an MCP icon where supported.
 
@@ -107,8 +113,8 @@ Projects use a project code as their access credential. Anyone who obtains a cod
 ```sh
 npm ci
 npx tsc --noEmit
-npx wrangler d1 execute savepoint-db --local --file=schema.sql
-npx wrangler dev --local --port 8787 --var MAX_FILES:12 --var RATE_LIMIT_PER_MIN:100000 --var PUBLIC_ORIGIN:http://127.0.0.1:8787
+npx wrangler d1 execute savepoint-db --local --config wrangler.local.toml --file=schema.sql
+npx wrangler dev --local --config wrangler.local.toml --port 8787 --var MAX_FILES:12
 ```
 
 With the local Worker running in another terminal:
@@ -119,7 +125,7 @@ SMOKE_MAXFILES=12 npm run smoke
 
 In PowerShell, set the test limit before running it: `$env:SMOKE_MAXFILES = "12"` then `npm run smoke`.
 
-For the cron/expiry checks, start a separate local Worker with `--test-scheduled`, `--var EXPIRY_HOURS:0.0006`, `--var DOWNLOAD_MINUTES:0.02`, and `--var PUBLIC_ORIGIN:http://127.0.0.1:8787`, then run `npm run smoke:cron`. See the comments at the top of `scripts/smoke-cron.mjs` for the full command sequence.
+The local config omits the production custom-domain route so Wrangler keeps local OAuth resource URLs on localhost. Initialize its D1 with `npx wrangler d1 execute savepoint-db --local --config wrangler.local.toml --file=schema.sql`. For the cron/expiry checks, start a separate local Worker with `--config wrangler.local.toml`, `--test-scheduled`, `--var EXPIRY_HOURS:0.0006`, and `--var DOWNLOAD_MINUTES:0.02`, then run `npm run smoke:cron`. See the comments at the top of `scripts/smoke-cron.mjs` for the full command sequence.
 
 ## Project structure
 

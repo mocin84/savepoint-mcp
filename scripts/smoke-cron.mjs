@@ -1,13 +1,13 @@
 // Cron cleanup test. Needs a server started with a tiny expiry and --test-scheduled:
-//   rm -rf .wrangler/state && npx wrangler d1 execute savepoint-db --local --file=schema.sql
-//   npx wrangler dev --local --port 8787 --test-scheduled --var EXPIRY_HOURS:0.0006 --var DOWNLOAD_MINUTES:0.02 --var PUBLIC_ORIGIN:http://127.0.0.1:8787
+//   npx wrangler d1 execute savepoint-db --local --config wrangler.local.toml --file=schema.sql
+//   npx wrangler dev --local --config wrangler.local.toml --port 8787 --test-scheduled --var EXPIRY_HOURS:0.0006 --var DOWNLOAD_MINUTES:0.02
 //   node scripts/smoke-cron.mjs
 // (0.0006 h = ~2.2 s project expiry, 0.02 min = 1.2 s download link life)
 const ORIGIN = process.argv[2] || "http://localhost:8787";
 let id = 0, pass = 0, failn = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function tool(name, args) {
-  const r = await fetch(ORIGIN + "/mcp", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "tools/call", params: { name, arguments: args } }) });
+  const r = await fetch(ORIGIN + "/mcp", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${process.env.SMOKE_ACCESS_KEY || "local-test-key"}` }, body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "tools/call", params: { name, arguments: args } }) });
   const res = (await r.json()).result;
   return { text: res.content[0].text, isError: !!res.isError };
 }

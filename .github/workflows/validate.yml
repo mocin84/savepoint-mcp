@@ -27,12 +27,12 @@ jobs:
         run: npm run typecheck
 
       - name: Initialize local D1
-        run: npx wrangler d1 execute savepoint-db --local --file=schema.sql
+        run: npx wrangler d1 execute savepoint-db --local --config wrangler.local.toml --file=schema.sql
 
       - name: Start local Worker
         shell: bash
         run: |
-          npx wrangler dev --local --port 8787 --var MAX_FILES:12 --var RATE_LIMIT_PER_MIN:100000 --var PUBLIC_ORIGIN:http://127.0.0.1:8787 > worker.log 2>&1 &
+          npx wrangler dev --local --config wrangler.local.toml --port 8787 --var MAX_FILES:12 > worker.log 2>&1 &
           echo $! > worker.pid
           for attempt in {1..30}; do
             if curl --fail --silent http://127.0.0.1:8787/health > /dev/null; then

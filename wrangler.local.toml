@@ -1,0 +1,33 @@
+# Local-only development config. It intentionally omits the production custom-domain route.
+name = "savepoint-mcp"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "savepoint-db"
+database_id = "REPLACE_WITH_YOUR_D1_ID"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "savepoint-files"
+
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "REPLACE_WITH_YOUR_OAUTH_KV_ID"
+
+[vars]
+MAX_PROJECTS_PER_DAY = "200"
+RATE_LIMIT_PER_MIN = "100000"
+EXPIRY_HOURS = "24"
+MAX_PROJECT_BYTES = "26214400"
+MAX_FILES = "200"
+MAX_FILE_BYTES = "1048576"
+DOWNLOAD_MINUTES = "15"
+PUBLIC_ORIGIN = "http://127.0.0.1:8787"
+CLEANUP_BUDGET = "40"
+ACCESS_KEY = "local-test-key"
+
+[triggers]
+crons = ["0 * * * *"]
