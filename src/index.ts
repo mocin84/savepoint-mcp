@@ -7,6 +7,7 @@ import {
 } from "@cloudflare/workers-oauth-provider";
 import { handleMcp } from "./mcp";
 import { cleanup, handleDownload } from "./downloads";
+import { cleanupLinks, handleAsset, handleUpload } from "./assets";
 import { publicIcon, publicPage } from "./site";
 import { markSvg, wordmark } from "./brand";
 import { finishAdminExport, isAdminState, recordSignIn, startAdminExport, type GoogleProfile } from "./admin";
@@ -27,6 +28,8 @@ export interface Env {
   MAX_PROJECT_BYTES?: string;
   MAX_FILES?: string;
   MAX_FILE_BYTES?: string;
+  MAX_ASSET_BYTES?: string;
+  GLOBAL_STORAGE_BYTES?: string;
   DOWNLOAD_MINUTES?: string;
   CLEANUP_BUDGET?: string;
 }
@@ -297,6 +300,14 @@ const defaultHandler = {
     if (url.pathname === "/authorize") return handleAuthorize(req, env);
     if (url.pathname === "/oauth/google/callback") return handleGoogleCallback(req, env);
     if (url.pathname === "/admin/users.xlsx" && req.method === "GET") return startAdminExport(req, env, originFor(req, env), errorPage);
+    if (url.pathname.startsWith("/u/")) {
+      if (await rateLimited(req, env)) return new Response("Too many requests", { status: 429, headers: { "retry-after": "60" } });
+      return handleUpload(req, env, url.pathname.slice(3));
+    }
+    if (url.pathname.startsWith("/a/") && req.method === "GET") {
+      if (await rateLimited(req, env)) return new Response("Too many requests", { status: 429, headers: { "retry-after": "60" } });
+      return handleAsset(env, url.pathname.slice(3));
+    }
     if (url.pathname.startsWith("/dl/")) {
       if (req.method !== "GET") return withCors(new Response("Method not allowed", { status: 405 }));
       if (await rateLimited(req, env)) return withCors(new Response("Too many requests", { status: 429, headers: { "retry-after": "60" } }));
@@ -374,6 +385,7 @@ export default {
     ctx.waitUntil(Promise.all([
       cleanup(env).then((r) => console.log("cleanup", JSON.stringify(r))),
       provider.purgeExpiredData(env).then((r) => console.log("oauth cleanup", JSON.stringify(r))),
+      cleanupLinks(env).then((n) => console.log("link cleanup", n)),
     ]).then(() => undefined));
   },
 };

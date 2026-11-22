@@ -12,10 +12,11 @@ export const SERVER_INSTRUCTIONS = `SavePoint keeps this chat's work online so i
 1. Code first: when the user asks for work that creates or changes files, code, or documents and no project is open, your very first action is project_start (pass the request as task). Before any planning, reading, other tool calls, or work, write the box it returns, copied exactly. Only then start the task. The chat may hit its limit at any moment; the user must already have the code. Skip only for quick questions with no deliverable.
 2. Existing material: if the chat already holds work (attached or pasted files, earlier output), do the same: project_start, show the box, then save that material before continuing.
 3. Resume: if the user gives a project code or pastes a SavePoint box, call project_open first and continue from Next in NOTES.md.
-4. Live sync: call save right after you create or change each file. Use edits for small changes, files for new or rewritten files. Never leave changes unsaved.
-5. When a step finishes, pass done and next in that same save call. Do not make separate notes calls.
-6. Wrap-up: if the user says wrap up, stop, or that they are near their limit, or this chat has grown very long, save anything unsaved with done and next right away, then repeat the box in two lines.
-7. Don't narrate saves or repeat file contents in chat. Keep it brief.`;
+4. Live sync: call save right after you create or change each file, and for long files (documents, scripts, pages) save each section as soon as it is written with append: true instead of waiting for the end. Use edits for small changes. Never leave changes unsaved.
+5. Media (video, images, audio, PDF, slides, websites): save the source that produces the output as text (scripts, HTML/CSS, storyboard, captions, asset list) and put render/export steps in build. Render in parts (scene by scene, page by page) and upload each part as soon as it exists: call save with upload_folder, then upload with curl from your code environment; if that is blocked, give the user the link. In a new chat, rebuild from the source and build steps; read a binary only when you need the file itself.
+6. When a step finishes, pass done and next in that same save call. Do not make separate notes calls.
+7. Wrap-up: if the user says wrap up, stop, or that they are near their limit, or this chat has grown very long, save anything unsaved with done and next right away, then repeat the box in two lines.
+8. Don't narrate saves or repeat file contents in chat. Keep it brief.`;
 
 type Rpc = { jsonrpc: "2.0"; id?: string | number | null; method: string; params?: any };
 

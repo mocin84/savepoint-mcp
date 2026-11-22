@@ -3,6 +3,11 @@ import type { Env } from "./index";
 import { fail, filesPrefix, findProject, ok, type ToolResult } from "./project";
 import { listFiles } from "./files";
 import { formatBytes, randomToken, safeFileName } from "./util";
+import { assetLinkText } from "./assets";
+import { ensureMediaSchema } from "./files";
+
+/** Zips are built in Worker memory (128 MB); above this, big assets get their own links. */
+const ZIP_MAX_BYTES = 40 * 1024 * 1024;
 
 export type Ctx = { origin: string };
 
@@ -23,13 +28,22 @@ export async function projectDownload(env: Env, args: any, ctx: Ctx): Promise<To
   )
     .bind(row.id, row.last_activity, now + 60_000)
     .first<{ token: string; expires_at: number }>();
-  if (existing) return ok(linkText(ctx, existing.token, existing.expires_at - now, row.file_count, row.total_bytes, true));
+  if (existing && row.total_bytes <= ZIP_MAX_BYTES) return ok(linkText(ctx, existing.token, existing.expires_at - now, row.file_count, row.total_bytes, true));
 
-  let paths = (await env.DB.prepare("SELECT path FROM files WHERE project_id = ? ORDER BY path").bind(row.id).all<{ path: string }>()).results;
-  if (paths.length === 0 && row.file_count > 0) {
+  await ensureMediaSchema(env);
+  const q = () => env.DB.prepare("SELECT path, size, version, ctype FROM files WHERE project_id = ? ORDER BY path").bind(row.id).all<{ path: string; size: number; version: number; ctype: string | null }>();
+  let all = (await q()).results;
+  if (all.length === 0 && row.file_count > 0) {
     await listFiles(env, row, ""); // adopts Phase-1 files into the index
-    paths = (await env.DB.prepare("SELECT path FROM files WHERE project_id = ? ORDER BY path").bind(row.id).all<{ path: string }>()).results;
+    all = (await q()).results;
   }
+  // Big projects: zip text files (and small assets), give large assets their own links.
+  const split = row.total_bytes > ZIP_MAX_BYTES;
+  const separate = split ? all.filter((f) => f.ctype && f.size > 1024 * 1024) : [];
+  const paths = split ? all.filter((f) => !separate.includes(f)) : all;
+  const assetLines: string[] = [];
+  for (const f of separate.slice(0, 20)) assetLines.push(await assetLinkText(env, row, f.path, f.ctype!, f.size, f.version, ctx.origin));
+  const assetText = assetLines.length ? `\n\nLarge assets (separate links):\n${assetLines.join("\n")}` : "";
 
   const data: Record<string, Uint8Array> = {};
   let total = 0;
@@ -67,7 +81,7 @@ export async function projectDownload(env: Env, args: any, ctx: Ctx): Promise<To
     return fail("Storage error while preparing the download. Try again.");
   }
   await env.DB.prepare("INSERT INTO downloads (token, project_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(token, row.id, now, expires).run();
-  return ok(linkText(ctx, token, expires - now, count, total, false));
+  return ok(linkText(ctx, token, expires - now, count, total, false) + assetText);
 }
 
 function linkText(ctx: Ctx, token: string, leftMs: number, files: number, bytes: number, reused: boolean): string {
@@ -75,7 +89,7 @@ function linkText(ctx: Ctx, token: string, leftMs: number, files: number, bytes:
   return (
     `Download link (works for about ${mins} min${reused ? ", same link as before, nothing changed" : ""}):\n${ctx.origin}/dl/${token}\n\n` +
     `Zip of ${files} file(s), ${formatBytes(bytes)}. Give this link to the user to open in a browser. ` +
-    `The project stays online and its 24h timer is not reset.`
+    `The project stays online and its 12h timer is not reset.`
   );
 }
 
@@ -94,7 +108,7 @@ export async function handleDownload(env: Env, token: string): Promise<Response>
   if (!row) return gone();
   const now = Date.now();
   if (row.expires_at < now) return gone();
-  if (now - row.last_activity > Number(env.EXPIRY_HOURS ?? "24") * 3600_000) return gone(); // project itself expired
+  if (now - row.last_activity > Number(env.EXPIRY_HOURS ?? "12") * 3600_000) return gone(); // project itself expired
 
   const obj = await env.FILES.get(dlKey(row.id, token));
   if (!obj) return gone();
@@ -117,7 +131,7 @@ export async function handleDownload(env: Env, token: string): Promise<Response>
  */
 export async function cleanup(env: Env): Promise<{ projects: number; zips: number }> {
   const now = Date.now();
-  const expiryMs = Number(env.EXPIRY_HOURS ?? "24") * 3600_000;
+  const expiryMs = Number(env.EXPIRY_HOURS ?? "12") * 3600_000;
   let budget = Number(env.CLEANUP_BUDGET ?? "40");
   let projects = 0;
   let zips = 0;

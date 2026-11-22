@@ -95,10 +95,11 @@ Default limits are in `wrangler.toml`:
 
 | Setting | Default |
 | --- | ---: |
-| Project idle expiry | 24 hours |
+| Project idle expiry | 12 hours |
 | Files per project | 200 |
-| Bytes per file | 1 MiB |
-| Total project size | 25 MiB |
+| Bytes per text file | 1 MiB |
+| Bytes per uploaded asset (video, image, PDF) | 50 MiB |
+| Total project size | 100 MiB |
 | Download link lifetime | 15 minutes |
 | Requests per IP per minute | 120 |
 

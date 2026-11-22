@@ -32,7 +32,7 @@ check("instructions show the box before any work", init.result?.instructions?.in
 check("instructions cover wrap-up near the limit", init.result?.instructions?.includes("near their limit") && init.result?.instructions?.includes("repeat the box"));
 check("instructions cover existing material", init.result?.instructions?.includes("save that material before continuing"));
 check("instructions require live save after each file", init.result?.instructions?.includes("call save right after you create or change each file"));
-check("instructions are short (<= 1500 chars)", (init.result?.instructions?.length ?? 9999) <= 1500, init.result?.instructions?.length);
+check("instructions are short (<= 2200 chars)", (init.result?.instructions?.length ?? 9999) <= 2200, init.result?.instructions?.length);
 const iconRes = await fetch(BASEURL + "/savepoint-icon.svg");
 const iconText = await iconRes.text();
 check("icon file is the red/ink SavePoint mark", iconRes.status === 200 && iconText.startsWith("<svg xmlns=") && iconText.includes("#e0242b") && iconText.includes("#12171d"));
@@ -61,7 +61,7 @@ const byName = Object.fromEntries(list.result.tools.map((t) => [t.name, t]));
 check("read tools are marked read-only", ["project_open", "read", "project_download"].every((n) => byName[n].annotations?.readOnlyHint === true));
 check("save is a non-destructive write", byName.save.annotations?.readOnlyHint === false && byName.save.annotations?.destructiveHint === false);
 check("remove is marked destructive", byName.remove.annotations?.destructiveHint === true);
-check("tool definitions are compact (<= 3500 chars)", JSON.stringify(list.result.tools).length <= 3500, JSON.stringify(list.result.tools).length);
+check("tool definitions are compact (<= 4500 chars)", JSON.stringify(list.result.tools).length <= 4500, JSON.stringify(list.result.tools).length);
 
 const created = await tool("project_create", { name: "Smoke" });
 const code = created.text.match(/[2-9A-Z]{5}-[2-9A-Z]{5}-[2-9A-Z]{5}-[2-9A-Z]{5}/)?.[0];
@@ -184,6 +184,51 @@ check("file_delete ok", !r.isError, r.text);
 r = await tool("file_list", { code, prefix: "docs/" });
 check("deleted file gone from list", !r.text.includes("docs/c.md"), r.text);
 
+// append: long files saved section by section
+r = await tool("save", { code, files: [{ path: "docs/report.md", content: "# Report\n\nPart one.\n", append: true }] });
+check("append creates a new file", !r.isError && r.text.includes("docs/report.md v1"), r.text);
+r = await tool("save", { code, files: [{ path: "docs/report.md", content: "Part two.\n", append: true }] });
+check("append adds to the end", !r.isError && r.text.includes("docs/report.md v2"), r.text);
+r = await tool("read", { code, path: "docs/report.md" });
+check("appended sections are all there in order", r.text.includes("3| Part one.") && r.text.includes("4| Part two."), r.text);
+check("instructions ask for section-by-section saves", init.result?.instructions?.includes("append: true"));
+o = await tool("project_open", { code });
+const left = o.text.match(/Expires in: (?:(\d+)h )?(\d+)m/);
+check("projects expire after 12 hours", !!left && Number(left[1] || 0) * 60 + Number(left[2]) <= 720, o.text.slice(0, 160));
+
+// ---------- media: upload links, binary assets ----------
+const fakeVideo = new Uint8Array(300000).map((_, i) => (i * 7) % 256);
+r = await tool("save", { code, upload_folder: "renders/", build: "python render.py -> renders/clip.mp4" });
+const up = r.text.match(/https?:\/\/\S+\/u\/[a-f0-9]{40}/)?.[0];
+check("save upload_folder returns an upload link", !r.isError && !!up, r.text);
+check("upload link reply explains curl and the browser fallback", r.text.includes("curl -sS -T") && r.text.includes("give the user the link"), r.text);
+const put = await fetch(up + "/clip.mp4", { method: "PUT", headers: { "content-type": "video/mp4" }, body: fakeVideo });
+const putText = await put.text();
+check("PUT upload stores the binary", put.status === 200 && putText.includes("saved renders/clip.mp4 v1"), `${put.status} ${putText}`);
+const page = await fetch(up);
+check("upload page opens in a browser", page.status === 200 && (await page.text()).includes("Upload to SavePoint"));
+const fd = new FormData();
+fd.append("file", new Blob([new Uint8Array([37, 80, 68, 70, 45, 49])], { type: "application/pdf" }), "brief.pdf");
+const post = await fetch(up, { method: "POST", body: fd });
+check("browser form upload stores the file", post.status === 200 && (await post.text()).includes("renders/brief.pdf"), post.status);
+const badPut = await fetch(up.replace(/[a-f0-9]{40}$/, "0".repeat(40)) + "/x.bin", { method: "PUT", body: new Uint8Array([1]) });
+check("unknown upload token is refused", badPut.status === 404, badPut.status);
+r = await tool("save", { code, files: [{ path: "assets/dot.png", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", type: "image/png" }] });
+check("small binary saved inline via base64", !r.isError && r.text.includes("assets/dot.png v1"), r.text);
+o = await tool("project_open", { code });
+check("project_open lists binaries with type and size", o.text.includes("- renders/clip.mp4 [video/mp4, ") && o.text.includes("- assets/dot.png [image/png"), o.text.slice(0, 600));
+check("NOTES.md logs uploads and keeps How to build", o.text.includes("uploaded renders/clip.mp4") && o.text.includes("## How to build\n- python render.py -> renders/clip.mp4"), o.text);
+r = await tool("read", { code, path: "renders/clip.mp4" });
+const assetUrl = r.text.match(/https?:\/\/\S+\/a\/[a-f0-9]{40}/)?.[0];
+check("read on a binary returns a download link, not bytes", !r.isError && !!assetUrl && r.text.includes("video/mp4") && r.text.length < 300, r.text);
+const got = await fetch(assetUrl);
+const gotBuf = new Uint8Array(await got.arrayBuffer());
+check("asset link returns the exact bytes", got.status === 200 && got.headers.get("content-type") === "video/mp4" && gotBuf.length === fakeVideo.length && gotBuf.every((b, i) => b === fakeVideo[i]), `${got.status} ${gotBuf.length}`);
+r = await tool("save", { code, edits: [{ path: "renders/clip.mp4", old: "a", new: "b" }] });
+check("text edit on a binary is refused", r.isError && r.text.includes("binary"), r.text);
+r = await tool("save", { code, files: [{ path: "assets/big.bin", base64: "A".repeat(400000) }] });
+check("oversized inline base64 points to upload_folder", r.isError && r.text.includes("upload_folder"), r.text.slice(0, 200));
+
 // accounting: project_open count must equal file_list count
 const all = await tool("file_list", { code });
 const nFiles = all.text.split("\n").filter((l) => l.startsWith("- ")).length;
@@ -213,7 +258,7 @@ check("download 200 + zip magic", zres.status === 200 && zbuf.subarray(0, 4).toS
 check("download is an attachment .zip", /attachment; filename="Smoke\.zip"/.test(zres.headers.get("content-disposition") || ""), zres.headers.get("content-disposition"));
 const zs = zbuf.toString("latin1");
 const zipNames = zres.status === 200 ? Object.keys(unzipSync(zbuf)) : [];
-check("zip holds files (src/a.txt, src/b.js, NOTES.md)", ["src/a.txt", "src/b.js", "NOTES.md"].every((name) => zipNames.includes(name)), zipNames.join(", "));
+check("zip holds files (src/a.txt, src/b.js, NOTES.md, renders/clip.mp4)", ["src/a.txt", "src/b.js", "NOTES.md", "renders/clip.mp4"].every((name) => zipNames.includes(name)), zipNames.join(", "));
 check("zip holds file content (store mode)", zs.includes("line1") && zs.includes("Smoke goal"), "");
 check("zip excludes deleted file", !zipNames.includes("docs/c.md"), zipNames.join(", "));
 const d2 = await tool("project_download", { code });
@@ -224,7 +269,7 @@ const link3 = d3.text.match(/https?:\/\/\S+\/dl\/[a-f0-9]{40}/)?.[0];
 check("new link after a change", !!link3 && link3 !== link, d3.text);
 check("zip of new link has the change", Buffer.from(await (await fetch(link3)).arrayBuffer()).toString("latin1").includes("zipcheck-marker"), "");
 const mid = minsLeft((await tool("project_open", { code })).text);
-check("download did not reset 24h timer (writes did, so just sanity)", before > 0 && mid > 0, `${before} ${mid}`);
+check("download did not reset 12h timer (writes did, so just sanity)", before > 0 && mid > 0, `${before} ${mid}`);
 check("garbage token -> 404", (await fetch(BASEURL + "/dl/" + "0".repeat(40))).status === 404, "");
 check("malformed token -> 404", (await fetch(BASEURL + "/dl/abc")).status === 404, "");
 check("download needs no access key (plain GET works)", (await fetch(link3)).status === 200, "");

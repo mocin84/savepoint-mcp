@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS files (
   version    INTEGER NOT NULL,
   size       INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
+  ctype      TEXT,                         -- NULL = text file; otherwise the binary content type
   PRIMARY KEY (project_id, path)
 );
 
@@ -45,3 +46,14 @@ CREATE TABLE IF NOT EXISTS users (
   last_seen INTEGER NOT NULL,
   sign_ins INTEGER NOT NULL DEFAULT 1
 );
+
+-- Short-lived upload links (binary assets) and asset download links.
+-- token_hash = sha256(token); the token itself is never stored. Created lazily too.
+CREATE TABLE IF NOT EXISTS links (
+  token_hash TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,                -- 'upload' | 'asset'
+  project_id TEXT NOT NULL,
+  path       TEXT NOT NULL,                -- upload: target folder; asset: file path
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_links_expires ON links(expires_at);

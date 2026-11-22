@@ -19,10 +19,12 @@ id = "REPLACE_WITH_YOUR_OAUTH_KV_ID"
 [vars]
 MAX_PROJECTS_PER_DAY = "200"
 RATE_LIMIT_PER_MIN = "120"
-EXPIRY_HOURS = "24"
-MAX_PROJECT_BYTES = "26214400"   # 25 MB per project
+EXPIRY_HOURS = "12"
+MAX_PROJECT_BYTES = "104857600"  # 100 MB per project (text + assets)
 MAX_FILES = "200"                 # files per project
-MAX_FILE_BYTES = "1048576"       # 1 MB per file
+MAX_FILE_BYTES = "1048576"       # 1 MB per text file
+MAX_ASSET_BYTES = "52428800"     # 50 MB per uploaded asset (video, image, PDF)
+GLOBAL_STORAGE_BYTES = "8589934592" # stop uploads at 8 GB total (R2 free tier is 10 GB)
 DOWNLOAD_MINUTES = "15"          # download link lifetime
 PUBLIC_ORIGIN = "https://mcp.14technologies.com.pk" # canonical base for generated download links
 CLEANUP_BUDGET = "40"            # max storage/DB calls per hourly cleanup run

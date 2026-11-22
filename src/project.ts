@@ -23,6 +23,10 @@ export function limits(env: Env) {
     maxBytes: Number(env.MAX_PROJECT_BYTES ?? "26214400"),
     maxFiles: Number(env.MAX_FILES ?? "200"),
     maxFileBytes: Number(env.MAX_FILE_BYTES ?? "1048576"),
+    /** Binary assets (video, images, PDF) uploaded through upload links. */
+    maxAssetBytes: Number(env.MAX_ASSET_BYTES ?? "52428800"),
+    /** Guard for the whole bucket so the free R2 tier (10 GB) is never exceeded. */
+    globalBytes: Number(env.GLOBAL_STORAGE_BYTES ?? "8589934592"),
   };
 }
 
@@ -37,9 +41,9 @@ export async function findProject(env: Env, code: unknown): Promise<Found> {
     .bind(id)
     .first<ProjectRow>();
   if (!row) return { ok: false, error: "Project not found or expired. Ask the user to double-check the code, or create a new project." };
-  const expiryMs = Number(env.EXPIRY_HOURS ?? "24") * 3600_000;
+  const expiryMs = Number(env.EXPIRY_HOURS ?? "12") * 3600_000;
   if (Date.now() - row.last_activity > expiryMs)
-    return { ok: false, error: "This project has expired (no changes for 24 hours) and its files are removed. Create a new project." };
+    return { ok: false, error: "This project has expired (no changes for 12 hours) and its files are removed. Create a new project." };
   return { ok: true, row, expiryMs };
 }
 

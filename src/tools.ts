@@ -80,7 +80,7 @@ async function projectOpen(env: Env, args: any): Promise<ToolResult> {
 
   const { rows, truncated } = await listFiles(env, row, "");
   // Paths only: versions and sizes are not needed to continue and cost tokens on every resume.
-  const tree = rows.map((r) => `- ${r.path}`).join("\n") || "(no files)";
+  const tree = rows.map((r) => (r.ctype ? `- ${r.path} [${r.ctype}, ${formatBytes(r.size)}]` : `- ${r.path}`)).join("\n") || "(no files)";
   const more = truncated ? "\n... more files, use read with a prefix" : "";
 
   const notesObj = await env.FILES.get(filesPrefix(row.id) + NOTES_FILE);
@@ -99,7 +99,7 @@ export async function callTool(env: Env, name: string, args: any, ctx: Ctx): Pro
     if (name === "project_start" || name === "project_create") return await projectCreate(env, args);
     if (name === "project_open") return await projectOpen(env, args);
     if (name === "project_download") return await projectDownload(env, args, ctx);
-    const r = await callFileTool(env, name, args);
+    const r = await callFileTool(env, name, args, ctx);
     if (r) return r;
     return fail(`Unknown tool: ${name}`);
   } catch (e: any) {

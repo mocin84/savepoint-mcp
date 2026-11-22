@@ -46,7 +46,7 @@
   <path d="M750 251h122" fill="none" stroke="#F29A9E" stroke-width="3" marker-end="url(#arrow)"/>
   <path d="M750 292h98v-68h24M848 292v19h24" fill="none" stroke="#F29A9E" stroke-width="2.5" marker-end="url(#arrow)"/>
   <rect x="56" y="366" width="1088" height="1" fill="#C9CCD1" opacity=".25"/>
-  <text x="56" y="395" fill="#C9CCD1" font-family="Segoe UI,Arial,sans-serif" font-size="13">24-hour idle expiry</text>
+  <text x="56" y="395" fill="#C9CCD1" font-family="Segoe UI,Arial,sans-serif" font-size="13">12-hour idle expiry</text>
   <circle cx="190" cy="390" r="3" fill="#E0242B"/>
   <text x="209" y="395" fill="#C9CCD1" font-family="Segoe UI,Arial,sans-serif" font-size="13">Hourly cleanup</text>
   <circle cx="334" cy="390" r="3" fill="#E0242B"/>

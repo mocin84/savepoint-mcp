@@ -29,6 +29,6 @@ The raw project code is not used as the storage key; SavePoint derives a project
 
 ## Operational limits
 
-Limits are set in `wrangler.toml`. Defaults are 200 files, 1 MiB per file, 25 MiB per project, 24-hour idle expiry, 15-minute download links, and 120 MCP requests per IP per minute. Cloudflare account quotas are separate and should be checked before production use.
+Limits are set in `wrangler.toml`. Defaults are 200 files, 1 MiB per text file, 50 MiB per asset, 100 MiB per project, 12-hour idle expiry, 15-minute download links, and 120 MCP requests per IP per minute. Cloudflare account quotas are separate and should be checked before production use.
 
 There is no per-user identity or authorization model. A configured `ACCESS_KEY` is shared by all connector users. Keep it private and rotate it if it is exposed. SavePoint stores text files only and does not execute project code.
